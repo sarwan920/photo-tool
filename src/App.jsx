@@ -15,6 +15,7 @@ function App() {
   const [processingMessage, setProcessingMessage] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedSuit, setSelectedSuit] = useState('none');
 
   const handleFileSelect = useCallback((selectedFile) => {
     if (selectedFile.size > 20 * 1024 * 1024) {
@@ -40,7 +41,7 @@ function App() {
     setResult(null);
 
     try {
-      const result = await processPhoto(file, selectedSpec, (progress) => {
+      const result = await processPhoto(file, selectedSpec, selectedSuit, (progress) => {
         setProcessingStep(progress.step);
         setProcessingMessage(progress.message);
       });
@@ -54,12 +55,13 @@ function App() {
       setProcessing(false);
       setProcessingStep(null);
     }
-  }, [file, selectedSpec]);
+  }, [file, selectedSpec, selectedSuit]);
 
   const handleReset = useCallback(() => {
     setFile(null);
     setFilePreviewUrl(null);
     setSelectedSpec(null);
+    setSelectedSuit('none');
     setResult(null);
     setError(null);
     setProcessing(false);
@@ -107,6 +109,41 @@ function App() {
               selectedSpec={selectedSpec}
               onSelect={handleSpecSelect}
             />
+          </div>
+
+          {/* Step 3: Professional Attire (Optional) */}
+          <div className="panel-card panel-section fade-in-up">
+            <div className="panel-section__header">
+              <span className="panel-section__title">3. Professional Attire (Optional)</span>
+            </div>
+            <p className="panel-section__desc">Overlay a formal suit or blazer for a business look</p>
+            <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+              {[
+                { id: 'none', label: 'None' },
+                { id: 'male', label: 'Formal Suit (Male)' },
+                { id: 'female', label: 'Formal Blazer (Female)' }
+              ].map((suit) => (
+                <button
+                  key={suit.id}
+                  onClick={() => setSelectedSuit(suit.id)}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    fontSize: '0.72rem',
+                    fontWeight: selectedSuit === suit.id ? '600' : '500',
+                    border: '1px solid',
+                    borderColor: selectedSuit === suit.id ? 'var(--color-text-primary)' : 'var(--color-border)',
+                    backgroundColor: selectedSuit === suit.id ? 'var(--color-bg-primary)' : 'var(--color-bg-secondary)',
+                    color: selectedSuit === suit.id ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                >
+                  {suit.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Step 3: Action Button */}

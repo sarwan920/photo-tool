@@ -9,6 +9,7 @@ Pipeline:
 """
 
 import io
+import os
 import logging
 from contextlib import asynccontextmanager
 
@@ -186,6 +187,7 @@ async def process_photo(
     file: UploadFile = File(...),
     width_px: int = Form(...),
     height_px: int = Form(...),
+    suit_type: str = Form("none"),
 ):
     """
     Process a photo for visa use.
@@ -227,7 +229,46 @@ async def process_photo(
     # Step 4: Resize to EXACT target dimensions using high-quality LANCZOS
     cropped_resized = cropped.resize((width_px, height_px), Image.Resampling.LANCZOS)
 
-    # Step 5: Composite onto white background
+    # Step 5: Apply suit overlay if selected
+    if suit_type in ("male", "female") and face is not None:
+        try:
+            template_path = os.path.join("server", "templates", f"suit_{suit_type}.png")
+            if os.path.exists(template_path):
+                suit_tmpl = Image.open(template_path).convert("RGBA")
+                
+                # Scale factors from crop box to output dimensions
+                scale_x = width_px / crop_w
+                scale_y = height_px / crop_h
+                
+                # Face boundaries in output coordinates
+                fw_out = face["w"] * scale_x
+                fh_out = face["h"] * scale_y
+                face_cx_out = ((face["x"] + face["w"] / 2) - crop_x) * scale_x
+                chin_y_out = ((face["y"] + face["h"]) - crop_y) * scale_y
+                
+                # Calculate suit overlay dimensions (3.0x face width, maintaining template ratio)
+                suit_w = int(round(fw_out * 3.0))
+                suit_h = int(round(suit_w * (suit_tmpl.height / suit_tmpl.width)))
+                
+                # Resize template
+                suit_resized = suit_tmpl.resize((suit_w, suit_h), Image.Resampling.LANCZOS)
+                
+                # Align suit collar slightly overlapping the neck/chin
+                suit_x = int(round(face_cx_out - suit_w / 2))
+                suit_y = int(round(chin_y_out - suit_h * 0.12))
+                
+                # Composite the suit template
+                suit_layer = Image.new("RGBA", (width_px, height_px), (0, 0, 0, 0))
+                suit_layer.paste(suit_resized, (suit_x, suit_y), suit_resized)
+                
+                cropped_resized = Image.alpha_composite(cropped_resized, suit_layer)
+                logger.info(f"Suit overlay applied: type={suit_type}, size={suit_w}x{suit_h}, pos=({suit_x}, {suit_y})")
+            else:
+                logger.warning(f"Suit template not found: {template_path}")
+        except Exception as e:
+            logger.error(f"Failed to apply suit overlay: {e}")
+
+    # Step 6: Composite onto white background
     final = Image.new("RGB", (width_px, height_px), (255, 255, 255))
     # Paste using alpha channel as mask
     final.paste(cropped_resized, (0, 0), cropped_resized)
