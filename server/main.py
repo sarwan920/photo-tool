@@ -228,9 +228,9 @@ async def process_photo(
     assert final.size == (width_px, height_px), \
         f"Output size mismatch: got {final.size}, expected ({width_px}, {height_px})"
 
-    # ── Output optimized PNG ──
+    # ── Output optimized PNG with 300 DPI metadata for print-readiness ──
     output = io.BytesIO()
-    final.save(output, format="PNG", optimize=True)
+    final.save(output, format="PNG", optimize=True, dpi=(300, 300))
     output.seek(0)
     file_size = output.getbuffer().nbytes
 
