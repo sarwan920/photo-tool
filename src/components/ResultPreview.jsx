@@ -1,8 +1,8 @@
-import { Download, FileImage, RotateCcw, Maximize2, HardDrive } from 'lucide-react';
+import { Download, FileImage, RotateCcw, Maximize2, HardDrive, CheckCircle2 } from 'lucide-react';
 import { downloadBlob } from '../utils/imageProcessor';
 
 function ResultPreview({ result, originalPreviewUrl, onReset }) {
-  const { finalBlob, previewUrl, spec } = result;
+  const { finalBlob, previewUrl, spec, faceDetected, actualWidth, actualHeight } = result;
 
   const handleDownloadPng = () => {
     const filename = `visa-photo-${spec.country.toLowerCase().replace(/\s+/g, '-')}-${spec.widthPx}x${spec.heightPx}.png`;
@@ -10,16 +10,16 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
   };
 
   const handleDownloadJpeg = () => {
-    // Convert to JPEG via canvas
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = spec.widthPx;
-      canvas.height = spec.heightPx;
+      // Use actual image dimensions (should match spec)
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       canvas.toBlob(
         (blob) => {
           const filename = `visa-photo-${spec.country.toLowerCase().replace(/\s+/g, '-')}-${spec.widthPx}x${spec.heightPx}.jpg`;
@@ -33,6 +33,9 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
   };
 
   const fileSizeKB = (finalBlob.size / 1024).toFixed(1);
+  const displayW = actualWidth || spec.widthPx;
+  const displayH = actualHeight || spec.heightPx;
+  const dimensionsMatch = displayW === spec.widthPx && displayH === spec.heightPx;
 
   return (
     <div className="fade-in-up">
@@ -52,9 +55,9 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
             <img src={previewUrl} alt="Processed visa photo" className="result__image" />
           </div>
           <div className="result__meta">
-            <div className="result__meta-item">
-              <Maximize2 size={12} />
-              {spec.widthPx} × {spec.heightPx} px
+            <div className="result__meta-item" style={dimensionsMatch ? { color: 'var(--color-success)' } : {}}>
+              {dimensionsMatch ? <CheckCircle2 size={12} /> : <Maximize2 size={12} />}
+              {displayW} × {displayH} px
             </div>
             <div className="result__meta-item">
               <Maximize2 size={12} />
@@ -64,6 +67,12 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
               <HardDrive size={12} />
               {fileSizeKB} KB
             </div>
+            {faceDetected && (
+              <div className="result__meta-item" style={{ color: 'var(--color-success)' }}>
+                <CheckCircle2 size={12} />
+                Face detected
+              </div>
+            )}
           </div>
         </div>
       </div>

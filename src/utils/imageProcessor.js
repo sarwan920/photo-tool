@@ -5,8 +5,6 @@
  *  - rembg (U2Net) for proper AI background removal
  *  - OpenCV for accurate face detection
  *  - Pillow for high-quality resize & composite
- *
- * Processing is fast because the model is loaded once at server startup.
  */
 
 /**
@@ -28,11 +26,22 @@ export async function processPhoto(file, spec, onProgress) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Processing failed: ${errorText}`);
+    let detail = 'Unknown error';
+    try {
+      const errorData = await response.json();
+      detail = errorData.detail || response.statusText;
+    } catch {
+      detail = await response.text() || response.statusText;
+    }
+    throw new Error(`Processing failed: ${detail}`);
   }
 
   onProgress?.({ step: 'compositing', message: 'Finalizing visa photo...' });
+
+  // Read metadata from response headers
+  const actualWidth = parseInt(response.headers.get('X-Image-Width') || spec.widthPx, 10);
+  const actualHeight = parseInt(response.headers.get('X-Image-Height') || spec.heightPx, 10);
+  const faceDetected = response.headers.get('X-Face-Detected') === 'true';
 
   const finalBlob = await response.blob();
 
@@ -43,6 +52,9 @@ export async function processPhoto(file, spec, onProgress) {
     transparentBlob: finalBlob,
     previewUrl: URL.createObjectURL(finalBlob),
     transparentPreviewUrl: URL.createObjectURL(finalBlob),
+    actualWidth,
+    actualHeight,
+    faceDetected,
     spec,
   };
 }
