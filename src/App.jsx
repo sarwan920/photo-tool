@@ -180,7 +180,7 @@ function App() {
                     {processingMessage}
                   </div>
                   <div className="processing-status__detail">
-                    Processing your photo instantly...
+                    Our server is processing your photo with AI...
                   </div>
                 </div>
               </div>
