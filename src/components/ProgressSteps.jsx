@@ -2,7 +2,7 @@ import { Scissors, ImageDown, Check } from 'lucide-react';
 
 function ProgressSteps({ currentStep }) {
   const steps = [
-    { id: 'removing', label: 'Removing\nBackground', icon: Scissors },
+    { id: 'removing', label: 'Detect Face\n& Crop', icon: Scissors },
     { id: 'compositing', label: 'White BG\n& Resize', icon: ImageDown },
     { id: 'done', label: 'Complete', icon: Check },
   ];
