@@ -10,14 +10,13 @@
 /**
  * Process a photo via the Python backend API.
  */
-export async function processPhoto(file, spec, suitType = 'none', onProgress) {
+export async function processPhoto(file, spec, onProgress) {
   onProgress?.({ step: 'removing', message: 'Uploading & detecting face...' });
 
   const formData = new FormData();
   formData.append('file', file);
   formData.append('width_px', spec.widthPx.toString());
   formData.append('height_px', spec.heightPx.toString());
-  formData.append('suit_type', suitType);
 
   onProgress?.({ step: 'removing', message: 'Removing background & cropping...' });
 
