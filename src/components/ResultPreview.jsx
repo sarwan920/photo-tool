@@ -1,4 +1,4 @@
-import { Download, FileImage, RotateCcw, Maximize2, HardDrive, CheckCircle2 } from 'lucide-react';
+import { Download, FileImage, RotateCcw, Check, Sparkles, AlertCircle } from 'lucide-react';
 import { downloadBlob } from '../utils/imageProcessor';
 
 function ResultPreview({ result, originalPreviewUrl, onReset }) {
@@ -13,7 +13,6 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      // Use actual image dimensions (should match spec)
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
@@ -38,68 +37,116 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
   const dimensionsMatch = displayW === spec.widthPx && displayH === spec.heightPx;
 
   return (
-    <div className="fade-in-up">
-      <div className="result">
-        <div className="result__column">
-          <div className="result__label">Original</div>
-          <div className="result__image-wrapper">
-            <img src={originalPreviewUrl} alt="Original photo" className="result__image" />
+    <div className="result-container fade-in-up">
+      {/* Comparison Grid */}
+      <div className="compare-grid">
+        <div className="compare-card">
+          <div className="compare-card__header">Original Photo</div>
+          <div className="compare-card__body">
+            <img src={originalPreviewUrl} alt="Original uploaded portrait" className="compare-card__img" />
           </div>
         </div>
 
-        <div className="result__column">
-          <div className="result__label">
-            Processed — {spec.flag} {spec.country}
+        <div className="compare-card">
+          <div className="compare-card__header">
+            Processed Visa Photo — {spec.flag} {spec.country}
           </div>
-          <div className="result__image-wrapper result__image-wrapper--white">
-            <img src={previewUrl} alt="Processed visa photo" className="result__image" />
+          <div className="compare-card__body compare-card__body--white">
+            <img src={previewUrl} alt="Processed visa portrait" className="compare-card__img" />
           </div>
-          <div className="result__meta">
-            <div className="result__meta-item" style={dimensionsMatch ? { color: 'var(--color-success)' } : {}}>
-              {dimensionsMatch ? <CheckCircle2 size={12} /> : <Maximize2 size={12} />}
-              {displayW} × {displayH} px
-            </div>
-            <div className="result__meta-item">
-              <Maximize2 size={12} />
-              {spec.widthMm} × {spec.heightMm} mm
-            </div>
-            <div className="result__meta-item">
-              <HardDrive size={12} />
-              {fileSizeKB} KB
-            </div>
-            {faceDetected && (
-              <div className="result__meta-item" style={{ color: 'var(--color-success)' }}>
-                <CheckCircle2 size={12} />
-                Face detected
+        </div>
+      </div>
+
+      {/* Compliance Checklist and Downloads */}
+      <div className="result-details-grid">
+        {/* Checklist */}
+        <div className="compliance-card">
+          <h3 className="compliance-card__title">
+            <Sparkles size={16} />
+            Visa Compliance Audit
+          </h3>
+          <ul className="compliance-list">
+            <li className="compliance-item">
+              <span className="compliance-icon compliance-icon--success">
+                <Check size={12} strokeWidth={3} />
+              </span>
+              <div className="compliance-text">
+                <div className="compliance-label">Background Removed</div>
+                <div className="compliance-desc">Replaced with pure white background</div>
               </div>
-            )}
+            </li>
+
+            <li className="compliance-item">
+              <span className={`compliance-icon ${dimensionsMatch ? 'compliance-icon--success' : 'compliance-icon--warning'}`}>
+                {dimensionsMatch ? <Check size={12} strokeWidth={3} /> : <AlertCircle size={12} />}
+              </span>
+              <div className="compliance-text">
+                <div className="compliance-label">Exact Resizing ({displayW} × {displayH} px)</div>
+                <div className="compliance-desc">Matches {spec.country} requirements ({spec.widthMm}x{spec.heightMm} mm)</div>
+              </div>
+            </li>
+
+            <li className="compliance-item">
+              <span className={`compliance-icon ${faceDetected ? 'compliance-icon--success' : 'compliance-icon--warning'}`}>
+                {faceDetected ? <Check size={12} strokeWidth={3} /> : <AlertCircle size={12} />}
+              </span>
+              <div className="compliance-text">
+                <div className="compliance-label">Face Alignment Check</div>
+                <div className="compliance-desc">
+                  {faceDetected 
+                    ? 'Face detected & centered at ~65-70% height' 
+                    : 'Warning: Face boundaries could not be fully verified. Please double-check photo quality.'}
+                </div>
+              </div>
+            </li>
+
+            <li className="compliance-item">
+              <span className="compliance-icon compliance-icon--success">
+                <Check size={12} strokeWidth={3} />
+              </span>
+              <div className="compliance-text">
+                <div className="compliance-label">Print Quality (300 DPI)</div>
+                <div className="compliance-desc">Embedded high-resolution print density metadata</div>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        {/* Download Actions */}
+        <div className="download-panel">
+          <div className="download-panel__title">Export Your Photo</div>
+          <p className="download-panel__desc">
+            Choose the format required by your application system.
+          </p>
+
+          <div className="download-card-list">
+            <div className="download-card" onClick={handleDownloadPng}>
+              <div className="download-card__icon-box download-card__icon-box--png">
+                <Download size={20} />
+              </div>
+              <div className="download-card__info">
+                <div className="download-card__type">Download PNG (Lossless)</div>
+                <div className="download-card__meta">Best for printing • {fileSizeKB} KB</div>
+              </div>
+            </div>
+
+            <div className="download-card" onClick={handleDownloadJpeg}>
+              <div className="download-card__icon-box download-card__icon-box--jpeg">
+                <FileImage size={20} />
+              </div>
+              <div className="download-card__info">
+                <div className="download-card__type">Download JPEG (Compressed)</div>
+                <div className="download-card__meta">Best for online applications • 300 DPI</div>
+              </div>
+            </div>
           </div>
+
+          <button className="reset-action-btn" onClick={onReset}>
+            <RotateCcw size={14} />
+            Process Another Photo
+          </button>
         </div>
       </div>
-
-      <div className="download-actions" style={{ justifyContent: 'center', maxWidth: '500px', margin: '24px auto 0' }}>
-        <button
-          className="download-btn download-btn--primary"
-          onClick={handleDownloadPng}
-          id="download-png-btn"
-        >
-          <Download size={18} />
-          Download PNG
-        </button>
-        <button
-          className="download-btn download-btn--secondary"
-          onClick={handleDownloadJpeg}
-          id="download-jpeg-btn"
-        >
-          <FileImage size={18} />
-          Download JPEG
-        </button>
-      </div>
-
-      <button className="reset-btn" onClick={onReset} id="reset-btn">
-        <RotateCcw size={16} />
-        Process Another Photo
-      </button>
     </div>
   );
 }

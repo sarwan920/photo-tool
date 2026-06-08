@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Upload, ImagePlus, RefreshCw } from 'lucide-react';
+import { Upload, FileImage, RefreshCw, Sparkles } from 'lucide-react';
 
 function UploadZone({ onFileSelect, currentFile, previewUrl }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -50,7 +50,9 @@ function UploadZone({ onFileSelect, currentFile, previewUrl }) {
   return (
     <div
       id="upload-zone"
-      className={`upload-zone ${isDragging ? 'upload-zone--active' : ''}`}
+      className={`upload-zone ${isDragging ? 'upload-zone--active' : ''} ${
+        currentFile ? 'upload-zone--has-file' : ''
+      }`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -66,45 +68,60 @@ function UploadZone({ onFileSelect, currentFile, previewUrl }) {
       />
 
       {currentFile && previewUrl ? (
-        <div className="upload-zone__preview">
-          <img
-            src={previewUrl}
-            alt="Uploaded preview"
-            className="upload-zone__preview-img"
-          />
-          <div className="upload-zone__preview-info">
-            <div className="upload-zone__preview-name">{currentFile.name}</div>
-            <div className="upload-zone__preview-size">
-              {formatSize(currentFile.size)}
+        <div className="upload-zone__preview-container">
+          <div className="upload-zone__preview-media">
+            <img
+              src={previewUrl}
+              alt="Uploaded source"
+              className="upload-zone__preview-img"
+            />
+            <div className="upload-zone__preview-glow" />
+          </div>
+          <div className="upload-zone__preview-details">
+            <div className="upload-zone__preview-meta">
+              <span className="upload-zone__file-pill">
+                <FileImage size={12} />
+                Source Image
+              </span>
+              <span className="upload-zone__size-pill">
+                {formatSize(currentFile.size)}
+              </span>
+            </div>
+            <div className="upload-zone__filename" title={currentFile.name}>
+              {currentFile.name}
             </div>
             <button
-              className="upload-zone__change-btn"
+              className="upload-zone__replace-btn"
               onClick={(e) => {
                 e.stopPropagation();
                 inputRef.current?.click();
               }}
             >
-              <RefreshCw size={14} />
-              Change Photo
+              <RefreshCw size={12} />
+              Replace Photo
             </button>
           </div>
         </div>
       ) : (
-        <>
-          <div className="upload-zone__icon">
-            {isDragging ? (
-              <ImagePlus size={48} />
-            ) : (
-              <Upload size={48} />
-            )}
+        <div className="upload-zone__prompt">
+          <div className="upload-zone__graphics">
+            <div className="upload-zone__circle-glow" />
+            <div className="upload-zone__icon-box">
+              <Upload size={24} className="upload-zone__icon" />
+            </div>
           </div>
-          <div className="upload-zone__text">
-            {isDragging ? 'Drop your photo here' : 'Click or drag a photo to upload'}
+          <div className="upload-zone__heading">
+            Drag & drop your portrait here
           </div>
-          <div className="upload-zone__hint">
-            Supports JPEG, PNG, WebP • Max 20 MB
+          <div className="upload-zone__subheading">
+            or <span className="upload-zone__link-text">browse files</span>
           </div>
-        </>
+          <div className="upload-zone__info">
+            <span className="upload-zone__info-item">PNG, JPEG, WebP</span>
+            <span className="upload-zone__bullet">•</span>
+            <span className="upload-zone__info-item">Up to 20MB</span>
+          </div>
+        </div>
       )}
     </div>
   );
