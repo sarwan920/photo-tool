@@ -263,3 +263,10 @@ async def process_photo(
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "model_loaded": rembg_session is not None}
+
+
+# Serve static files from Vite build directory in production
+if os.path.exists("dist"):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+
