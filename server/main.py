@@ -85,10 +85,10 @@ def calculate_visa_crop(
     target_w: int, target_h: int,
 ) -> tuple[int, int, int, int]:
     """
-    Calculate the crop region so the face fills ~65-70% of the frame height.
+    Calculate the crop region so the face fills ~75-85% of the frame height.
 
     Visa photo standards:
-      - Head (chin to crown + hair) ≈ 65-70% of photo height
+      - Head (chin to crown + hair) ≈ 75-85% of photo height
       - ~8% margin above head
       - Shoulders visible below
       - Face horizontally centered
@@ -122,8 +122,8 @@ def calculate_visa_crop(
     ideal_crop_h = head_height / 0.65
     ideal_crop_w = ideal_crop_h * target_aspect
 
-    # Head should start at ~8% from the top of the crop
-    ideal_crop_y = head_top - ideal_crop_h * 0.08
+    # Head should start at ~3.6% from the top of the crop (reduced from 8% to make the space less)
+    ideal_crop_y = head_top - ideal_crop_h * 0.036
     
     # Center horizontally on face
     ideal_crop_x = face_cx - ideal_crop_w / 2
@@ -140,7 +140,7 @@ def calculate_visa_crop(
     crop_x = face_cx - crop_w / 2
     
     # Keep vertical position based on head, but adjust for new size
-    head_margin_ratio = 0.08
+    head_margin_ratio = 0.036
     if ideal_crop_h > 0:
         head_rel_y = (head_top - ideal_crop_y) / ideal_crop_h
     else:
