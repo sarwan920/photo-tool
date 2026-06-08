@@ -99,7 +99,7 @@ function App() {
       >
         {[
           { icon: Shield, text: '100% Private' },
-          { icon: Zap, text: 'AI-Powered' },
+          { icon: Zap, text: 'Instant Processing' },
           { icon: Globe, text: '15+ Countries' },
         ].map(({ icon: Icon, text }) => (
           <div
@@ -180,7 +180,7 @@ function App() {
                     {processingMessage}
                   </div>
                   <div className="processing-status__detail">
-                    This may take a moment — AI is working in your browser
+                    Processing your photo instantly...
                   </div>
                 </div>
               </div>
