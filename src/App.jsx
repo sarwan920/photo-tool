@@ -54,7 +54,7 @@ function App() {
       setProcessing(false);
       setProcessingStep(null);
     }
-  }, [file, selectedSpec, selectedSuit]);
+  }, [file, selectedSpec]);
 
   const handleReset = useCallback(() => {
     setFile(null);
