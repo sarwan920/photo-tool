@@ -1,4 +1,4 @@
-import { Download, FileImage, RotateCcw, Check, Sparkles, AlertCircle } from 'lucide-react';
+import MaterialIcon from './MaterialIcon';
 import { downloadBlob } from '../utils/imageProcessor';
 
 function ResultPreview({ result, originalPreviewUrl, onReset }) {
@@ -61,14 +61,14 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
       <div className="result-details-grid">
         {/* Checklist */}
         <div className="compliance-card">
-          <h3 className="compliance-card__title">
-            <Sparkles size={16} />
+          <h3 className="compliance-card__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <MaterialIcon name="auto_awesome" size={16} />
             Visa Compliance Audit
           </h3>
           <ul className="compliance-list">
             <li className="compliance-item">
               <span className="compliance-icon compliance-icon--success">
-                <Check size={12} strokeWidth={3} />
+                <MaterialIcon name="check" size={12} style={{ color: 'var(--color-success)', fontWeight: 'bold' }} />
               </span>
               <div className="compliance-text">
                 <div className="compliance-label">Background Removed</div>
@@ -78,7 +78,7 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
 
             <li className="compliance-item">
               <span className={`compliance-icon ${dimensionsMatch ? 'compliance-icon--success' : 'compliance-icon--warning'}`}>
-                {dimensionsMatch ? <Check size={12} strokeWidth={3} /> : <AlertCircle size={12} />}
+                {dimensionsMatch ? <MaterialIcon name="check" size={12} style={{ color: 'var(--color-success)', fontWeight: 'bold' }} /> : <MaterialIcon name="warning" size={12} style={{ color: 'var(--color-warning)' }} />}
               </span>
               <div className="compliance-text">
                 <div className="compliance-label">Exact Resizing ({displayW} × {displayH} px)</div>
@@ -88,7 +88,7 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
 
             <li className="compliance-item">
               <span className={`compliance-icon ${faceDetected ? 'compliance-icon--success' : 'compliance-icon--warning'}`}>
-                {faceDetected ? <Check size={12} strokeWidth={3} /> : <AlertCircle size={12} />}
+                {faceDetected ? <MaterialIcon name="check" size={12} style={{ color: 'var(--color-success)', fontWeight: 'bold' }} /> : <MaterialIcon name="warning" size={12} style={{ color: 'var(--color-warning)' }} />}
               </span>
               <div className="compliance-text">
                 <div className="compliance-label">Face Alignment Check</div>
@@ -102,7 +102,7 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
 
             <li className="compliance-item">
               <span className="compliance-icon compliance-icon--success">
-                <Check size={12} strokeWidth={3} />
+                <MaterialIcon name="check" size={12} style={{ color: 'var(--color-success)', fontWeight: 'bold' }} />
               </span>
               <div className="compliance-text">
                 <div className="compliance-label">Print Quality (300 DPI)</div>
@@ -122,7 +122,7 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
           <div className="download-card-list">
             <div className="download-card" onClick={handleDownloadPng}>
               <div className="download-card__icon-box download-card__icon-box--png">
-                <Download size={20} />
+                <MaterialIcon name="file_download" size={20} />
               </div>
               <div className="download-card__info">
                 <div className="download-card__type">Download PNG (Lossless)</div>
@@ -132,7 +132,7 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
 
             <div className="download-card" onClick={handleDownloadJpeg}>
               <div className="download-card__icon-box download-card__icon-box--jpeg">
-                <FileImage size={20} />
+                <MaterialIcon name="image" size={20} />
               </div>
               <div className="download-card__info">
                 <div className="download-card__type">Download JPEG (Compressed)</div>
@@ -141,8 +141,8 @@ function ResultPreview({ result, originalPreviewUrl, onReset }) {
             </div>
           </div>
 
-          <button className="reset-action-btn" onClick={onReset}>
-            <RotateCcw size={14} />
+          <button className="reset-action-btn" onClick={onReset} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <MaterialIcon name="autorenew" size={14} />
             Process Another Photo
           </button>
         </div>

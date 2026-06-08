@@ -1149,15 +1149,18 @@ body {
 }
 
 .navbar__logo {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--color-accent) 0%, #3b82f6 100%);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+  color: var(--color-accent);
+  transition: transform var(--transition-base);
+}
+
+.navbar__brand:hover .navbar__logo {
+  transform: rotate(10deg) scale(1.05);
 }
 
 .navbar__title {
@@ -1218,14 +1221,38 @@ body {
   gap: var(--space-xl);
 }
 
-/* Hero Section */
 .hero {
+  position: relative;
   text-align: center;
-  padding: var(--space-lg) 0 var(--space-xl);
+  padding: var(--space-xl) 0 var(--space-xl);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-md);
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-primary);
+  /* Cool linear-gradient grid background */
+  background-image: 
+    linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: center top;
+}
+
+/* Vignette mask that fades grid toward edges */
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 30%, transparent 10%, var(--color-bg-primary) 75%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.hero > * {
+  position: relative;
+  z-index: 2;
 }
 
 .hero__badge-container {

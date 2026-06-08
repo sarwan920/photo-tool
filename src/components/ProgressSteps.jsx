@@ -1,10 +1,10 @@
-import { Scissors, ImageDown, Check } from 'lucide-react';
+import MaterialIcon from './MaterialIcon';
 
 function ProgressSteps({ currentStep }) {
   const steps = [
-    { id: 'removing', label: 'Remove BG\n& Detect Face', icon: Scissors },
-    { id: 'compositing', label: 'Crop &\nResize', icon: ImageDown },
-    { id: 'done', label: 'Complete', icon: Check },
+    { id: 'removing', label: 'Remove BG\n& Detect Face', icon: 'content_cut' },
+    { id: 'compositing', label: 'Crop &\nResize', icon: 'aspect_ratio' },
+    { id: 'done', label: 'Complete', icon: 'check' },
   ];
 
   const getStepState = (stepId) => {
@@ -21,14 +21,13 @@ function ProgressSteps({ currentStep }) {
     <div className="progress-steps">
       {steps.map((step) => {
         const state = getStepState(step.id);
-        const Icon = step.icon;
         return (
           <div
             key={step.id}
             className={`progress-step progress-step--${state}`}
           >
             <div className="progress-step__icon">
-              <Icon size={22} />
+              <MaterialIcon name={step.icon} size={15} />
             </div>
             <div className="progress-step__label">
               {step.label.split('\n').map((line, i) => (

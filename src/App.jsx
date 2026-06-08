@@ -1,10 +1,10 @@
 import { useState, useCallback } from 'react';
-import { Camera, Shield, Zap, Globe, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import UploadZone from './components/UploadZone';
 import CountrySelector from './components/CountrySelector';
 import ProgressSteps from './components/ProgressSteps';
 import ResultPreview from './components/ResultPreview';
 import LandingPage from './components/LandingPage';
+import MaterialIcon from './components/MaterialIcon';
 import { processPhoto, createPreviewUrl } from './utils/imageProcessor';
 
 function App() {
@@ -77,9 +77,23 @@ function App() {
         <div className="navbar-container">
           <button className="navbar__brand" onClick={() => setCurrentView('landing')}>
             <div className="navbar__logo">
-              <Camera size={15} />
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                {/* Outer aperture circle */}
+                <circle cx="12" cy="12" r="10" stroke="var(--color-accent)" strokeWidth="1.5" opacity="0.3" />
+                {/* Aperture blades */}
+                <path d="M12 2a10 10 0 0 1 10 10" stroke="var(--color-accent)" strokeWidth="1.5" />
+                <path d="M22 12a10 10 0 0 1-10 10" stroke="var(--color-accent)" strokeWidth="1.5" />
+                <path d="M12 22A10 10 0 0 1 2 12" stroke="var(--color-accent)" strokeWidth="1.5" />
+                <path d="M2 12A10 10 0 0 1 12 2" stroke="var(--color-accent)" strokeWidth="1.5" />
+                {/* Center lens circle */}
+                <circle cx="12" cy="12" r="4.5" fill="var(--color-accent-subtle)" stroke="var(--color-accent)" strokeWidth="1.5" />
+                {/* Visa checkmark overlapping lens */}
+                <path d="m9.5 12 1.5 1.5 3.5-3.5" stroke="#16a34a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </div>
-            <span className="navbar__title">Visa Photo Processor</span>
+            <span className="navbar__title" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              VisaPhoto <span style={{ fontWeight: '500', color: 'var(--color-accent)', background: 'var(--color-accent-subtle)', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem' }}>FREE</span>
+            </span>
           </button>
           
           <div className="navbar__links">
@@ -103,7 +117,7 @@ function App() {
           {/* Header */}
           <header className="header">
             <div className="header__badge">
-              <Camera size={12} />
+              <MaterialIcon name="photo_camera" size={12} style={{ marginRight: '4px' }} />
               Official Visa Photo Utility
             </div>
             <h1 className="header__title">Visa Photo Processor</h1>
@@ -157,7 +171,7 @@ function App() {
                     onClick={handleProcess}
                     id="process-btn"
                   >
-                    <Zap size={14} />
+                    <MaterialIcon name="bolt" size={14} style={{ marginRight: '4px' }} />
                     {canProcess
                       ? 'Process Photo'
                       : !file
@@ -170,7 +184,7 @@ function App() {
               {/* Errors */}
               {error && (
                 <div className="error-card fade-in-up">
-                  <AlertCircle size={14} />
+                  <MaterialIcon name="error" size={14} style={{ marginRight: '4px' }} />
                   <div>
                     <div className="error-card__title">Error Processing Image</div>
                     <div className="error-card__desc">{error}</div>
@@ -185,7 +199,7 @@ function App() {
                 <div className="panel-card preview-sandbox-card fade-in-up">
                   <div className="preview-sandbox-card__header">
                     <div className="preview-sandbox-card__title">
-                      <FileText size={13} />
+                      <MaterialIcon name="description" size={13} style={{ marginRight: '4px' }} />
                       Live Preview
                     </div>
                     {file && (
@@ -205,7 +219,7 @@ function App() {
                     ) : (
                       <div className="empty-sandbox">
                         <div className="empty-sandbox__graphic">
-                          <ImageIcon size={18} />
+                          <MaterialIcon name="photo" size={18} />
                         </div>
                         <div className="empty-sandbox__title">No Image Selected</div>
                         <p className="empty-sandbox__desc">
@@ -256,28 +270,17 @@ function App() {
           {/* Footer Info Strip */}
           <footer className="footer-strip">
             <div className="footer-strip__item">
-              <Shield size={12} />
+              <MaterialIcon name="shield" size={12} style={{ marginRight: '4px' }} />
               <span>Secure: All operations are automatic. Files are processed locally.</span>
             </div>
             <div className="footer-strip__item">
-              <Globe size={12} />
+              <MaterialIcon name="language" size={12} style={{ marginRight: '4px' }} />
               <span>Compliant: Sized to ICAO international visa specifications.</span>
             </div>
           </footer>
         </div>
       )}
     </div>
-  );
-}
-
-// Simple fallback icon component since Lucide Image icon is named ImageIcon in our react import to avoid collision
-function ImageIcon({ size }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-      <circle cx="9" cy="9" r="2"/>
-      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-    </svg>
   );
 }
 

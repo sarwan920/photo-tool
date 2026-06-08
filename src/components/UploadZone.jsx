@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Upload, FileImage, RefreshCw, Sparkles } from 'lucide-react';
+import MaterialIcon from './MaterialIcon';
 
 function UploadZone({ onFileSelect, currentFile, previewUrl }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -79,8 +79,8 @@ function UploadZone({ onFileSelect, currentFile, previewUrl }) {
           </div>
           <div className="upload-zone__preview-details">
             <div className="upload-zone__preview-meta">
-              <span className="upload-zone__file-pill">
-                <FileImage size={12} />
+              <span className="upload-zone__file-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <MaterialIcon name="image" size={12} />
                 Source Image
               </span>
               <span className="upload-zone__size-pill">
@@ -96,8 +96,9 @@ function UploadZone({ onFileSelect, currentFile, previewUrl }) {
                 e.stopPropagation();
                 inputRef.current?.click();
               }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
             >
-              <RefreshCw size={12} />
+              <MaterialIcon name="cached" size={12} />
               Replace Photo
             </button>
           </div>
@@ -107,7 +108,7 @@ function UploadZone({ onFileSelect, currentFile, previewUrl }) {
           <div className="upload-zone__graphics">
             <div className="upload-zone__circle-glow" />
             <div className="upload-zone__icon-box">
-              <Upload size={24} className="upload-zone__icon" />
+              <MaterialIcon name="cloud_upload" size={24} className="upload-zone__icon" />
             </div>
           </div>
           <div className="upload-zone__heading">

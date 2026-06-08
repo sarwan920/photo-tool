@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Search, X, Check } from 'lucide-react';
 import visaSpecs from '../data/visaSpecs';
+import MaterialIcon from './MaterialIcon';
 
 function CountrySelector({ selectedSpec, onSelect }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -40,7 +40,7 @@ function CountrySelector({ selectedSpec, onSelect }) {
     <div className="country-selector">
       {/* Search Input */}
       <div className="country-selector__search">
-        <Search size={16} className="country-selector__search-icon" />
+        <MaterialIcon name="search" size={16} className="country-selector__search-icon" />
         <input
           type="text"
           className="country-selector__search-input"
@@ -54,7 +54,7 @@ function CountrySelector({ selectedSpec, onSelect }) {
             className="country-selector__search-clear"
             onClick={() => setSearchQuery('')}
           >
-            <X size={14} />
+            <MaterialIcon name="close" size={14} />
           </button>
         )}
       </div>
@@ -92,7 +92,7 @@ function CountrySelector({ selectedSpec, onSelect }) {
                   <span className="country-card__flag">{spec.flag}</span>
                   {isSelected && (
                     <span className="country-card__check">
-                      <Check size={10} strokeWidth={3} />
+                      <MaterialIcon name="check" size={8} style={{ color: 'white', fontWeight: 'bold' }} />
                     </span>
                   )}
                 </div>

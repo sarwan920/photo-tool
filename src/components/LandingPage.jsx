@@ -1,16 +1,5 @@
 import React from 'react';
-import { 
-  ShieldCheck, 
-  Cpu, 
-  Sparkles, 
-  Lock, 
-  Scale, 
-  Printer, 
-  ArrowRight, 
-  Check, 
-  Globe, 
-  HelpCircle 
-} from 'lucide-react';
+import MaterialIcon from './MaterialIcon';
 
 export default function LandingPage({ onStart }) {
   // Common passport/visa specs to show in gallery
@@ -31,11 +20,11 @@ export default function LandingPage({ onStart }) {
       <section className="hero">
         <div className="hero__badge-container">
           <div className="hero__badge">
-            <Sparkles size={12} />
+            <MaterialIcon name="auto_awesome" size={13} style={{ marginRight: '4px' }} />
             AI-Powered Processing
           </div>
           <div className="hero__badge hero__badge--success">
-            <ShieldCheck size={12} />
+            <MaterialIcon name="verified_user" size={13} style={{ marginRight: '4px' }} />
             100% Free & Unlimited
           </div>
         </div>
@@ -51,7 +40,7 @@ export default function LandingPage({ onStart }) {
         <div className="hero__ctas">
           <button className="hero__cta-primary" onClick={onStart}>
             Process Your Photo Now
-            <ArrowRight size={16} />
+            <MaterialIcon name="arrow_forward" size={16} style={{ marginLeft: '4px' }} />
           </button>
           <a href="#supported-countries" className="hero__cta-secondary" style={{ textDecoration: 'none', display: 'inline-block' }}>
             Supported Specs
@@ -60,15 +49,15 @@ export default function LandingPage({ onStart }) {
 
         <div className="hero__trust-strip">
           <div className="hero__trust-item">
-            <Check size={14} className="hero__trust-icon" />
+            <MaterialIcon name="check" size={14} className="hero__trust-icon" style={{ color: 'var(--color-success)', marginRight: '2px' }} />
             <span>100% Free</span>
           </div>
           <div className="hero__trust-item">
-            <Check size={14} className="hero__trust-icon" />
+            <MaterialIcon name="check" size={14} className="hero__trust-icon" style={{ color: 'var(--color-success)', marginRight: '2px' }} />
             <span>Zero Server Storage</span>
           </div>
           <div className="hero__trust-item">
-            <Check size={14} className="hero__trust-icon" />
+            <MaterialIcon name="check" size={14} className="hero__trust-icon" style={{ color: 'var(--color-success)', marginRight: '2px' }} />
             <span>ICAO Compliant</span>
           </div>
         </div>
@@ -110,7 +99,7 @@ export default function LandingPage({ onStart }) {
 
               {/* Arrow */}
               <div className="pipeline-arrow">
-                <ArrowRight size={24} />
+                <MaterialIcon name="arrow_forward" size={24} />
               </div>
 
               {/* Right Side: After */}
@@ -186,7 +175,7 @@ export default function LandingPage({ onStart }) {
         <div className="features-grid">
           <div className="feature-item">
             <div className="feature-item__icon-box">
-              <Lock size={18} />
+              <MaterialIcon name="lock" size={18} />
             </div>
             <h3 className="feature-item__title">Zero Server Storage</h3>
             <p className="feature-item__desc">
@@ -196,7 +185,7 @@ export default function LandingPage({ onStart }) {
 
           <div className="feature-item">
             <div className="feature-item__icon-box" style={{ backgroundColor: '#f0fdf4', color: '#16a34a' }}>
-              <Sparkles size={18} />
+              <MaterialIcon name="auto_awesome" size={18} />
             </div>
             <h3 className="feature-item__title">100% Free</h3>
             <p className="feature-item__desc">
@@ -206,7 +195,7 @@ export default function LandingPage({ onStart }) {
 
           <div className="feature-item">
             <div className="feature-item__icon-box" style={{ backgroundColor: '#eff6ff', color: '#2563eb' }}>
-              <Cpu size={18} />
+              <MaterialIcon name="memory" size={18} />
             </div>
             <h3 className="feature-item__title">AI-Powered BG Removal</h3>
             <p className="feature-item__desc">
