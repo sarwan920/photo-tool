@@ -80,7 +80,7 @@ def detect_face(img_array: np.ndarray) -> dict | None:
 # ─── Smart Visa Crop ─────────────────────────────────────────
 
 def calculate_visa_crop(
-    img_w: int, img_h: int,
+    nobg_img: Image.Image,
     face: dict | None,
     target_w: int, target_h: int,
 ) -> tuple[int, int, int, int]:
@@ -95,6 +95,7 @@ def calculate_visa_crop(
 
     Returns (x, y, w, h) of the crop region in the original image.
     """
+    img_w, img_h = nobg_img.width, nobg_img.height
     target_aspect = target_w / target_h
 
     if face is None:
@@ -103,22 +104,31 @@ def calculate_visa_crop(
     fx, fy, fw, fh = face["x"], face["y"], face["w"], face["h"]
     face_cx = fx + fw / 2
 
-    # Haar cascade detects forehead-to-chin.
-    # Full head (with hair) ≈ face_h * 1.3
-    # Head should fill ~65% of the frame height.
-    head_height = fh * 1.3
+    # Get actual top of hair/head from non-transparent bbox
+    bbox = nobg_img.getbbox()
+    actual_hair_top = bbox[1] if bbox else 0
+
+    # Bounding box upper bound is the actual top of the hair.
+    # The bottom of the face box is approx the chin: fy + fh.
+    calculated_head_height = (fy + fh) - actual_hair_top
+    
+    # Add safety clamps (head height should be between 1.15x and 1.6x face height)
+    head_height = max(fh * 1.15, min(fh * 1.6, calculated_head_height))
+    
+    # The top of head
+    head_top = (fy + fh) - head_height
+
+    # Head should occupy ~65% of the crop height.
     ideal_crop_h = head_height / 0.65
     ideal_crop_w = ideal_crop_h * target_aspect
 
-    # Top of head is approximately fy - fh * 0.15
-    head_top = fy - fh * 0.15
     # Head should start at ~8% from the top of the crop
     ideal_crop_y = head_top - ideal_crop_h * 0.08
+    
     # Center horizontally on face
     ideal_crop_x = face_cx - ideal_crop_w / 2
 
-    # ── Constrain to image bounds while preserving aspect ratio ──
-
+    # ── Constrain size to image bounds while preserving aspect ratio ──
     crop_w = min(ideal_crop_w, float(img_w))
     crop_h = crop_w / target_aspect
 
@@ -128,18 +138,22 @@ def calculate_visa_crop(
 
     # Recompute position after constraining size
     crop_x = face_cx - crop_w / 2
+    
     # Keep vertical position based on head, but adjust for new size
     head_margin_ratio = 0.08
     if ideal_crop_h > 0:
-        # How far down the head was in the ideal crop
         head_rel_y = (head_top - ideal_crop_y) / ideal_crop_h
     else:
         head_rel_y = head_margin_ratio
     crop_y = head_top - crop_h * head_rel_y
 
-    # Clamp position to image bounds
-    crop_x = max(0.0, min(crop_x, img_w - crop_w))
-    crop_y = max(0.0, min(crop_y, img_h - crop_h))
+    # Allow crop to extend outside image bounds (Pillow will pad with transparency)
+    # but keep it constrained so it doesn't shift completely off-screen.
+    # We allow padding up to 15% of the crop size on the sides and top/bottom.
+    max_pad_w = crop_w * 0.15
+    max_pad_h = crop_h * 0.15
+    crop_x = max(-max_pad_w, min(crop_x, img_w - crop_w + max_pad_w))
+    crop_y = max(-max_pad_h, min(crop_y, img_h - crop_h + max_pad_h))
 
     return (
         int(round(crop_x)),
@@ -203,14 +217,8 @@ async def process_photo(
 
     # Step 3: Smart crop
     crop_x, crop_y, crop_w, crop_h = calculate_visa_crop(
-        nobg_img.width, nobg_img.height, face, width_px, height_px
+        nobg_img, face, width_px, height_px
     )
-
-    # Clamp crop to image bounds (safety)
-    crop_x = max(0, min(crop_x, nobg_img.width - 1))
-    crop_y = max(0, min(crop_y, nobg_img.height - 1))
-    crop_w = min(crop_w, nobg_img.width - crop_x)
-    crop_h = min(crop_h, nobg_img.height - crop_y)
 
     logger.info(f"Crop: x={crop_x}, y={crop_y}, w={crop_w}, h={crop_h}")
 
