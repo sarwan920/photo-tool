@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Camera, Shield, Zap, Globe, Sparkles, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { Camera, Shield, Zap, Globe, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import UploadZone from './components/UploadZone';
 import CountrySelector from './components/CountrySelector';
 import ProgressSteps from './components/ProgressSteps';
@@ -18,7 +18,7 @@ function App() {
 
   const handleFileSelect = useCallback((selectedFile) => {
     if (selectedFile.size > 20 * 1024 * 1024) {
-      setError('File is too large. Maximum size is 20 MB.');
+      setError('File size exceeds 20 MB limit.');
       return;
     }
     setFile(selectedFile);
@@ -48,7 +48,7 @@ function App() {
     } catch (err) {
       console.error('Processing failed:', err);
       setError(
-        'Processing failed. Please ensure the photo has a clear face in good lighting.'
+        'Processing failed. Make sure your portrait shows a clear face with even lighting.'
       );
     } finally {
       setProcessing(false);
@@ -70,37 +70,26 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Background Ambient Glows */}
-      <div className="ambient-glow ambient-glow--1" />
-      <div className="ambient-glow ambient-glow--2" />
-
-      {/* Brand Header */}
+      {/* Header */}
       <header className="header">
         <div className="header__badge">
-          <Sparkles size={12} />
-          AI Visa Passport Studio
+          <Camera size={12} />
+          Official Visa Photo Utility
         </div>
-        <h1 className="header__title">
-          Professional Visa Photos
-          <span className="header__title-gradient"> In Seconds</span>
-        </h1>
+        <h1 className="header__title">Visa Photo Processor</h1>
         <p className="header__subtitle">
-          An automated compliance processor that removes backgrounds, crops faces to exact international regulations, and writes print-ready 300 DPI metadata.
+          Crop and resize photos to official international standards. Automatically removes backgrounds and prepares print-ready files.
         </p>
       </header>
 
-      {/* Dashboard Layout */}
+      {/* Main Grid */}
       <main className="dashboard-grid">
-        {/* Left Column: Controls */}
+        {/* Left Column: Input Panel */}
         <div className="control-panel">
-          {/* Section 1: Upload */}
-          <div className="glass-card panel-section fade-in-up">
+          {/* Step 1: Upload */}
+          <div className="panel-card panel-section fade-in-up">
             <div className="panel-section__header">
-              <span className="panel-section__number">1</span>
-              <div>
-                <h2 className="panel-section__title">Upload Portrait</h2>
-                <p className="panel-section__desc">Select a front-facing headshot</p>
-              </div>
+              <span className="panel-section__title">1. Upload Portrait</span>
             </div>
             <UploadZone
               onFileSelect={handleFileSelect}
@@ -109,14 +98,10 @@ function App() {
             />
           </div>
 
-          {/* Section 2: Visa Specification */}
-          <div className="glass-card panel-section fade-in-up fade-in-up--delay-1">
+          {/* Step 2: Country Selection */}
+          <div className="panel-card panel-section fade-in-up">
             <div className="panel-section__header">
-              <span className="panel-section__number">2</span>
-              <div>
-                <h2 className="panel-section__title">Select Visa Specs</h2>
-                <p className="panel-section__desc">Choose destination photo size</p>
-              </div>
+              <span className="panel-section__title">2. Select Destination</span>
             </div>
             <CountrySelector
               selectedSpec={selectedSpec}
@@ -124,15 +109,15 @@ function App() {
             />
           </div>
 
-          {/* Section 3: Process CTA */}
-          <div className="fade-in-up fade-in-up--delay-2">
+          {/* Step 3: Action Button */}
+          <div className="fade-in-up">
             {processing ? (
-              <div className="glass-card processing-card">
+              <div className="panel-card processing-card">
                 <ProgressSteps currentStep={processingStep} />
                 <div className="processing-status">
                   <div className="processing-status__spinner" />
                   <div className="processing-status__text">{processingMessage}</div>
-                  <div className="processing-status__detail">Running facial segmentation models...</div>
+                  <div className="processing-status__detail">Running segmentations...</div>
                 </div>
               </div>
             ) : (
@@ -142,41 +127,41 @@ function App() {
                 onClick={handleProcess}
                 id="process-btn"
               >
-                <Zap size={18} />
+                <Zap size={14} />
                 {canProcess
                   ? 'Process Photo'
                   : !file
-                  ? 'Upload a photo to start'
-                  : 'Select a destination spec'}
+                  ? 'Please upload a photo first'
+                  : 'Please select a destination'}
               </button>
             )}
           </div>
 
-          {/* Error Message */}
+          {/* Errors */}
           {error && (
-            <div className="glass-card error-card fade-in-up">
-              <AlertCircle size={16} />
+            <div className="error-card fade-in-up">
+              <AlertCircle size={14} />
               <div>
-                <div className="error-card__title">Processing Failed</div>
+                <div className="error-card__title">Error Processing Image</div>
                 <div className="error-card__desc">{error}</div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Right Column: Sandbox / Live Output */}
+        {/* Right Column: Output / Preview Screen */}
         <div className="preview-panel">
           {!result ? (
-            <div className="glass-card preview-sandbox-card fade-in-up">
+            <div className="panel-card preview-sandbox-card fade-in-up">
               <div className="preview-sandbox-card__header">
                 <div className="preview-sandbox-card__title">
-                  <Camera size={14} />
-                  Live Sandbox Preview
+                  <FileText size={13} />
+                  Live Preview
                 </div>
                 {file && (
                   <span className="live-badge">
                     <span className="live-badge__dot" />
-                    Source Loaded
+                    Ready
                   </span>
                 )}
               </div>
@@ -185,58 +170,49 @@ function App() {
                 {filePreviewUrl ? (
                   <div className="viewfinder-view">
                     <img src={filePreviewUrl} alt="Source Preview" className="viewfinder-view__img" />
-                    <div className="viewfinder-overlay">
-                      <div className="viewfinder-overlay__grid" />
-                      <div className="viewfinder-overlay__guide-circle" />
-                      <div className="viewfinder-overlay__guide-shoulders" />
-                      <div className="viewfinder-overlay__corner viewfinder-overlay__corner--tl" />
-                      <div className="viewfinder-overlay__corner viewfinder-overlay__corner--tr" />
-                      <div className="viewfinder-overlay__corner viewfinder-overlay__corner--bl" />
-                      <div className="viewfinder-overlay__corner viewfinder-overlay__corner--br" />
-                    </div>
+                    <div className="viewfinder-overlay" />
                   </div>
                 ) : (
                   <div className="empty-sandbox">
                     <div className="empty-sandbox__graphic">
-                      <div className="empty-sandbox__circle" />
-                      <ImageIcon className="empty-sandbox__icon" size={36} />
+                      <ImageIcon size={18} />
                     </div>
-                    <div className="empty-sandbox__title">No Image Uploaded</div>
+                    <div className="empty-sandbox__title">No Image Selected</div>
                     <p className="empty-sandbox__desc">
-                      Upload a photo in the control panel to see the crop preview and guidelines here.
+                      Upload a photo to see the original preview here before processing.
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Specs Audit Checklist (Only shown in empty/initial state) */}
+              {/* Basic compliance hints */}
               {!file && (
                 <div className="specs-checklist-panel">
-                  <div className="specs-checklist-panel__title">Photo Quality Checklist</div>
+                  <div className="specs-checklist-panel__title">Requirements Guide</div>
                   <div className="specs-checklist-grid">
                     <div className="specs-checklist-item">
                       <div className="specs-checklist-item__bullet" />
-                      <div>Neutral expression, eyes open</div>
+                      <div>Neutral expression, head straight</div>
                     </div>
                     <div className="specs-checklist-item">
                       <div className="specs-checklist-item__bullet" />
-                      <div>Even lighting, no shadows</div>
+                      <div>Front-facing, eyes open and visible</div>
                     </div>
                     <div className="specs-checklist-item">
                       <div className="specs-checklist-item__bullet" />
-                      <div>Full face visible, head straight</div>
+                      <div>Even lighting with no harsh shadows</div>
                     </div>
                     <div className="specs-checklist-item">
                       <div className="specs-checklist-item__bullet" />
-                      <div>No glasses, hats, or headwear</div>
+                      <div>No glasses, headbands, or hats</div>
                     </div>
                   </div>
                 </div>
               )}
             </div>
           ) : (
-            /* Result Panel */
-            <div className="glass-card result-panel-card fade-in-up">
+            /* Result Dashboard */
+            <div className="panel-card fade-in-up">
               <ResultPreview
                 result={result}
                 originalPreviewUrl={filePreviewUrl}
@@ -250,15 +226,26 @@ function App() {
       {/* Footer Info Strip */}
       <footer className="footer-strip">
         <div className="footer-strip__item">
-          <Shield size={14} />
-          <span>**Privacy Safe**: Processing is secure & automated. No images are permanently stored.</span>
+          <Shield size={12} />
+          <span>Secure: All operations are automatic. Files are processed locally.</span>
         </div>
         <div className="footer-strip__item">
-          <Globe size={14} />
-          <span>**Compliance Standard**: Built according to ICAO photo guidelines.</span>
+          <Globe size={12} />
+          <span>Compliant: Sized to ICAO international visa specifications.</span>
         </div>
       </footer>
     </div>
+  );
+}
+
+// Simple fallback icon component since Lucide Image icon is named ImageIcon in our react import to avoid collision
+function ImageIcon({ size }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+      <circle cx="9" cy="9" r="2"/>
+      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+    </svg>
   );
 }
 
