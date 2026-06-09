@@ -13,6 +13,9 @@ import os
 # Disable CPU affinity in ONNX Runtime BEFORE importing rembg (which loads onnxruntime)
 # to prevent thread affinity segmentation faults in virtualized/container environments.
 os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
+# Configure U2NET_HOME to use /tmp in Linux/serverless environments to avoid permission errors
+if os.name != "nt":
+    os.environ["U2NET_HOME"] = "/tmp/.u2net"
 import logging
 from contextlib import asynccontextmanager
 
@@ -35,8 +38,8 @@ def get_rembg_session():
     global rembg_session
     if rembg_session is None:
         # Check if the cached model file is corrupted/incomplete (from an interrupted download)
-        home = os.path.expanduser("~")
-        model_path = os.path.join(home, ".u2net", "u2net.onnx")
+        u2net_dir = os.environ.get("U2NET_HOME", os.path.join(os.path.expanduser("~"), ".u2net"))
+        model_path = os.path.join(u2net_dir, "u2net.onnx")
         if os.path.exists(model_path):
             file_size = os.path.getsize(model_path)
             logger.info(f"Model cache check: found {model_path} ({file_size} bytes)")
@@ -285,6 +288,40 @@ async def process_photo(
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "model_loaded": rembg_session is not None}
+
+
+@app.get("/api/diag")
+async def diag():
+    import sys
+    import numpy as np
+    import onnxruntime as ort
+    
+    # Check write permissions in model directory
+    home = os.path.expanduser("~")
+    u2net_dir = os.environ.get("U2NET_HOME", os.path.join(home, ".u2net"))
+    u2net_writable = False
+    u2net_exists = os.path.exists(u2net_dir)
+    try:
+        os.makedirs(u2net_dir, exist_ok=True)
+        test_file = os.path.join(u2net_dir, "test.txt")
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+        u2net_writable = True
+    except Exception as e:
+        u2net_writable = str(e)
+
+    # Gather package versions
+    packages = {
+        "python": sys.version,
+        "numpy": np.__version__,
+        "onnxruntime": ort.__version__,
+        "ort_providers": ort.get_available_providers(),
+        "u2net_dir": u2net_dir,
+        "u2net_exists": u2net_exists,
+        "u2net_writable": u2net_writable,
+    }
+    return packages
 
 
 # Serve static files from Vite build directory in production
