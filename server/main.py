@@ -13,9 +13,8 @@ import os
 # Disable CPU affinity in ONNX Runtime BEFORE importing rembg (which loads onnxruntime)
 # to prevent thread affinity segmentation faults in virtualized/container environments.
 os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
-# Configure U2NET_HOME to use /tmp in Linux/serverless environments to avoid permission errors
-if os.name != "nt":
-    os.environ["U2NET_HOME"] = "/tmp/.u2net"
+# Configure U2NET_HOME to point to the pre-packaged models directory inside the server package
+os.environ["U2NET_HOME"] = os.path.join(os.path.dirname(__file__), "models")
 import logging
 from contextlib import asynccontextmanager
 
