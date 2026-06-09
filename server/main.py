@@ -18,6 +18,8 @@ os.environ["U2NET_HOME"] = os.path.join(os.path.dirname(__file__), "models")
 # Configure Numba environment variables to avoid crash in serverless/read-only container environments
 os.environ["NUMBA_CACHE_DIR"] = "/tmp/numba_cache"
 os.environ["NUMBA_NUM_THREADS"] = "1"
+# Force single-threaded execution in ONNX Runtime/OpenMP to prevent serverless container crashes
+os.environ["OMP_NUM_THREADS"] = "1"
 import logging
 from contextlib import asynccontextmanager
 
@@ -357,7 +359,10 @@ async def test_ort_run():
     
     try:
         logger.info(f"Initializing InferenceSession directly for {model_path}...")
-        sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        sess_options = ort.SessionOptions()
+        sess_options.intra_op_num_threads = 1
+        sess_options.inter_op_num_threads = 1
+        sess = ort.InferenceSession(model_path, sess_options, providers=["CPUExecutionProvider"])
         
         # Get input name and shape
         input_name = sess.get_inputs()[0].name
