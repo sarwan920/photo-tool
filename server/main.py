@@ -39,12 +39,12 @@ def get_rembg_session():
     if rembg_session is None:
         # Check if the cached model file is corrupted/incomplete (from an interrupted download)
         u2net_dir = os.environ.get("U2NET_HOME", os.path.join(os.path.expanduser("~"), ".u2net"))
-        model_path = os.path.join(u2net_dir, "u2net.onnx")
+        model_path = os.path.join(u2net_dir, "u2netp.onnx")
         if os.path.exists(model_path):
             file_size = os.path.getsize(model_path)
             logger.info(f"Model cache check: found {model_path} ({file_size} bytes)")
-            # u2net.onnx is 176,306,170 bytes. If it's less than 170MB, it's corrupted/incomplete
-            if file_size < 170000000:
+            # u2netp.onnx is ~4.7MB. If it's less than 4.5MB, it's corrupted/incomplete
+            if file_size < 4500000:
                 logger.warning(f"Cached model {model_path} is incomplete or corrupted. Deleting to force redownload...")
                 try:
                     os.remove(model_path)
@@ -52,7 +52,7 @@ def get_rembg_session():
                     logger.error(f"Failed to delete corrupted model: {e}")
         
         logger.info("Loading rembg model (lazy-load)...")
-        rembg_session = new_session("u2net", providers=["CPUExecutionProvider"])
+        rembg_session = new_session("u2netp", providers=["CPUExecutionProvider"])
         logger.info("rembg model loaded successfully.")
     return rembg_session
 
@@ -300,7 +300,7 @@ async def diag():
     home = os.path.expanduser("~")
     u2net_dir = os.environ.get("U2NET_HOME", os.path.join(home, ".u2net"))
     u2net_writable = False
-    u2net_exists = os.path.exists(u2net_dir)
+    u2net_exists = os.path.exists(os.path.join(u2net_dir, "u2netp.onnx"))
     try:
         os.makedirs(u2net_dir, exist_ok=True)
         test_file = os.path.join(u2net_dir, "test.txt")
