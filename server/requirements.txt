@@ -1,8 +1,6 @@
 fastapi[standard]
 uvicorn[standard]
 python-multipart
-onnxruntime==1.19.2
-rembg[cpu]
 Pillow
 opencv-python-headless
 numpy<2

@@ -2,7 +2,7 @@
 Visa Photo Processor — Python FastAPI Backend
 
 Pipeline:
-  1. Remove background using rembg (U2Net AI model)
+  1. Remove background using OpenCV GrabCut (stable, fast, CPU-friendly)
   2. Detect face using OpenCV Haar Cascade
   3. Smart-crop so face fills ~70% of the frame (visa standard)
   4. Composite onto white background at EXACT visa dimensions
@@ -10,16 +10,6 @@ Pipeline:
 
 import io
 import os
-# Disable CPU affinity in ONNX Runtime BEFORE importing rembg (which loads onnxruntime)
-# to prevent thread affinity segmentation faults in virtualized/container environments.
-os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
-# Configure U2NET_HOME to point to the pre-packaged models directory inside the server package
-os.environ["U2NET_HOME"] = os.path.join(os.path.dirname(__file__), "models")
-# Configure Numba environment variables to avoid crash in serverless/read-only container environments
-os.environ["NUMBA_CACHE_DIR"] = "/tmp/numba_cache"
-os.environ["NUMBA_NUM_THREADS"] = "1"
-# Force single-threaded execution in ONNX Runtime/OpenMP to prevent serverless container crashes
-os.environ["OMP_NUM_THREADS"] = "1"
 import logging
 from contextlib import asynccontextmanager
 
@@ -29,36 +19,9 @@ from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from PIL import Image
-from rembg import remove, new_session
 
 logger = logging.getLogger("visa-photo")
 logging.basicConfig(level=logging.INFO)
-
-# ─── Global model session (loaded once at startup) ────────────
-
-rembg_session = None
-
-def get_rembg_session():
-    global rembg_session
-    if rembg_session is None:
-        # Check if the cached model file is corrupted/incomplete (from an interrupted download)
-        u2net_dir = os.environ.get("U2NET_HOME", os.path.join(os.path.expanduser("~"), ".u2net"))
-        model_path = os.path.join(u2net_dir, "u2netp.onnx")
-        if os.path.exists(model_path):
-            file_size = os.path.getsize(model_path)
-            logger.info(f"Model cache check: found {model_path} ({file_size} bytes)")
-            # u2netp.onnx is ~4.7MB. If it's less than 4.5MB, it's corrupted/incomplete
-            if file_size < 4500000:
-                logger.warning(f"Cached model {model_path} is incomplete or corrupted. Deleting to force redownload...")
-                try:
-                    os.remove(model_path)
-                except Exception as e:
-                    logger.error(f"Failed to delete corrupted model: {e}")
-        
-        logger.info("Loading rembg model (lazy-load)...")
-        rembg_session = new_session("u2netp", providers=["CPUExecutionProvider"])
-        logger.info("rembg model loaded successfully.")
-    return rembg_session
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -107,6 +70,111 @@ def detect_face(img_array: np.ndarray) -> dict | None:
     return None
 
 
+# ─── GrabCut Background Removal ────────────────────────────────
+
+def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
+    """
+    Remove background using OpenCV GrabCut algorithm.
+    Optimized for speed and high resolution.
+    """
+    orig_w, orig_h = pil_img.width, pil_img.height
+    img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGBA2BGR)
+
+    # 1. Downscale for fast segmentation if too large
+    max_dim = 800
+    scale = 1.0
+    if max(orig_w, orig_h) > max_dim:
+        scale = max_dim / max(orig_w, orig_h)
+        w_scaled = int(orig_w * scale)
+        h_scaled = int(orig_h * scale)
+        img_small = cv2.resize(img, (w_scaled, h_scaled), interpolation=cv2.INTER_AREA)
+    else:
+        img_small = img
+        w_scaled, h_scaled = orig_w, orig_h
+
+    # 2. Initialize GrabCut mask
+    mask = np.full((h_scaled, w_scaled), cv2.GC_PR_BGD, dtype=np.uint8)
+
+    # Set outer borders to definitely background (5% border)
+    border_w = max(1, int(w_scaled * 0.05))
+    border_h = max(1, int(h_scaled * 0.05))
+    mask[0:border_h, :] = cv2.GC_BGD
+    mask[h_scaled-border_h:h_scaled, :] = cv2.GC_BGD
+    mask[:, 0:border_w] = cv2.GC_BGD
+    mask[:, w_scaled-border_w:w_scaled] = cv2.GC_BGD
+
+    # 3. Detect face on the scaled image
+    gray = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
+    
+    # Run face detection with multiple scale factors to ensure success
+    faces = []
+    for sf in [1.1, 1.05, 1.2, 1.3]:
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=sf,
+            minNeighbors=5,
+            minSize=(30, 30),
+            flags=cv2.CASCADE_SCALE_IMAGE,
+        )
+        if len(faces) > 0:
+            break
+
+    if len(faces) > 0:
+        # Sort by size to get largest face
+        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+        fx, fy, fw, fh = faces[0]
+        logger.info(f"GrabCut face detected: x={fx}, y={fy}, w={fw}, h={fh}")
+        
+        # Face core is definitely foreground
+        shrink_w = int(fw * 0.15)
+        shrink_h = int(fh * 0.15)
+        mask[fy+shrink_h:fy+fh-shrink_h, fx+shrink_w:fx+fw-shrink_w] = cv2.GC_FGD
+        
+        # Head/torso region is probably foreground
+        px1 = max(0, fx - int(fw * 1.2))
+        py1 = max(0, fy - int(fh * 0.7))
+        px2 = min(w_scaled, fx + fw + int(fw * 1.2))
+        py2 = h_scaled
+        
+        # Update probably foreground where it is not definitely background
+        pr_fg_mask = (mask != cv2.GC_BGD) & (mask != cv2.GC_FGD)
+        mask[py1:py2, px1:px2] = np.where(pr_fg_mask[py1:py2, px1:px2], cv2.GC_PR_FGD, mask[py1:py2, px1:px2])
+    else:
+        # Fallback: central oval is probably foreground
+        logger.warning("GrabCut face detection failed; using fallback central oval")
+        cv2.ellipse(mask, (w_scaled//2, h_scaled//2), (int(w_scaled*0.35), int(h_scaled*0.45)), 0, 0, 360, cv2.GC_PR_FGD, -1)
+
+    # 4. Run GrabCut
+    bgdModel = np.zeros((1, 65), np.float64)
+    fgdModel = np.zeros((1, 65), np.float64)
+    try:
+        cv2.grabCut(img_small, mask, None, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_MASK)
+    except Exception as e:
+        logger.error(f"GrabCut execution failed: {e}")
+        # Fallback to simple mask if GrabCut fails
+        mask = np.where((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD), cv2.GC_PR_FGD, cv2.GC_BGD).astype(np.uint8)
+
+    # Get binary mask
+    bin_mask_small = np.where((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD), 255, 0).astype(np.uint8)
+
+    # 5. Upscale mask to original size if downscaled
+    if scale != 1.0:
+        bin_mask = cv2.resize(bin_mask_small, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+    else:
+        bin_mask = bin_mask_small
+
+    # Apply bilateral filter to smooth edges of the mask
+    bin_mask = cv2.bilateralFilter(bin_mask, 9, 75, 75)
+    bin_mask = np.where(bin_mask > 127, 255, 0).astype(np.uint8)
+
+    # 6. Apply mask to create transparent image
+    mask_pil = Image.fromarray(bin_mask).convert("L")
+    transparent = Image.new("RGBA", (orig_w, orig_h))
+    transparent.paste(pil_img, (0, 0), mask=mask_pil)
+
+    return transparent
+
+
 # ─── Smart Visa Crop ─────────────────────────────────────────
 
 def calculate_visa_crop(
@@ -152,7 +220,7 @@ def calculate_visa_crop(
     ideal_crop_h = head_height / 0.65
     ideal_crop_w = ideal_crop_h * target_aspect
 
-    # Head should start at ~3.6% from the top of the crop (reduced from 8% to make the space less)
+    # Head should start at ~3.6% from the top of the crop
     ideal_crop_y = head_top - ideal_crop_h * 0.036
     
     # Center horizontally on face
@@ -179,7 +247,6 @@ def calculate_visa_crop(
 
     # Allow crop to extend outside image bounds (Pillow will pad with transparency)
     # but keep it constrained so it doesn't shift completely off-screen.
-    # We allow padding up to 15% of the crop size on the sides and top/bottom.
     max_pad_w = crop_w * 0.15
     max_pad_h = crop_h * 0.15
     crop_x = max(-max_pad_w, min(crop_x, img_w - crop_w + max_pad_w))
@@ -237,12 +304,7 @@ async def process_photo(
 
     # Step 2: Remove background
     logger.info("Removing background...")
-    nobg_bytes = remove(
-        contents,
-        session=get_rembg_session(),
-        bgcolor=None,
-    )
-    nobg_img = Image.open(io.BytesIO(nobg_bytes)).convert("RGBA")
+    nobg_img = remove_background_grabcut(pil_img)
     logger.info(f"Background removed. Size: {nobg_img.width}x{nobg_img.height}")
 
     # Step 3: Smart crop
@@ -257,11 +319,8 @@ async def process_photo(
     # Step 4: Resize to EXACT target dimensions using high-quality LANCZOS
     cropped_resized = cropped.resize((width_px, height_px), Image.Resampling.LANCZOS)
 
-
-
-    # Step 6: Composite onto white background
+    # Step 5: Composite onto white background
     final = Image.new("RGB", (width_px, height_px), (255, 255, 255))
-    # Paste using alpha channel as mask
     final.paste(cropped_resized, (0, 0), cropped_resized)
 
     # Verify exact dimensions
@@ -291,139 +350,25 @@ async def process_photo(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "model_loaded": rembg_session is not None}
+    return {"status": "ok"}
 
 
 @app.get("/api/diag")
 async def diag():
     import sys
     import numpy as np
-    import onnxruntime as ort
-    
-    # Check write permissions in model directory
-    home = os.path.expanduser("~")
-    u2net_dir = os.environ.get("U2NET_HOME", os.path.join(home, ".u2net"))
-    u2net_writable = False
-    u2net_exists = os.path.exists(os.path.join(u2net_dir, "u2netp.onnx"))
-    try:
-        os.makedirs(u2net_dir, exist_ok=True)
-        test_file = os.path.join(u2net_dir, "test.txt")
-        with open(test_file, "w") as f:
-            f.write("test")
-        os.remove(test_file)
-        u2net_writable = True
-    except Exception as e:
-        u2net_writable = str(e)
-
-    # Gather package versions
     import platform
+    
     packages = {
         "python": sys.version,
         "numpy": np.__version__,
-        "onnxruntime": ort.__version__,
-        "ort_providers": ort.get_available_providers(),
-        "u2net_dir": u2net_dir,
-        "u2net_exists": u2net_exists,
-        "u2net_writable": u2net_writable,
         "platform": platform.platform(),
         "machine": platform.machine(),
-        "processor": platform.processor(),
     }
     return packages
-
-
-@app.get("/api/test_ort_load")
-async def test_ort_load():
-    import onnxruntime as ort
-    import os
-    
-    home = os.path.expanduser("~")
-    u2net_dir = os.environ.get("U2NET_HOME", os.path.join(home, ".u2net"))
-    model_path = os.path.join(u2net_dir, "u2netp.onnx")
-    
-    try:
-        logger.info(f"Initializing InferenceSession directly for {model_path}...")
-        sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-        logger.info("InferenceSession initialized successfully!")
-        return {"status": "ok", "message": "InferenceSession initialized successfully!"}
-    except Exception as e:
-        logger.error(f"InferenceSession failed: {e}")
-        return {"status": "error", "message": str(e)}
-
-
-@app.get("/api/test_ort_run")
-async def test_ort_run():
-    import onnxruntime as ort
-    import os
-    import numpy as np
-    
-    home = os.path.expanduser("~")
-    u2net_dir = os.environ.get("U2NET_HOME", os.path.join(home, ".u2net"))
-    model_path = os.path.join(u2net_dir, "u2netp.onnx")
-    
-    try:
-        logger.info(f"Initializing InferenceSession directly for {model_path}...")
-        sess_options = ort.SessionOptions()
-        sess_options.intra_op_num_threads = 1
-        sess_options.inter_op_num_threads = 1
-        sess = ort.InferenceSession(model_path, sess_options, providers=["CPUExecutionProvider"])
-        
-        # Get input name and shape
-        input_name = sess.get_inputs()[0].name
-        # Input shape for u2netp is [1, 3, 320, 320]
-        logger.info(f"Input name: {input_name}")
-        
-        # Create a dummy input array
-        dummy_input = np.random.randn(1, 3, 320, 320).astype(np.float32)
-        
-        logger.info("Running inference directly...")
-        res = sess.run(None, {input_name: dummy_input})
-        logger.info("Inference completed successfully!")
-        return {"status": "ok", "outputs_count": len(res), "output_shape": res[0].shape}
-    except Exception as e:
-        logger.error(f"test_ort_run failed: {e}")
-        return {"status": "error", "message": str(e)}
-
-
-@app.get("/api/test_numba")
-async def test_numba():
-    try:
-        from numba import jit
-        @jit(nopython=True)
-        def add(a, b):
-            return a + b
-        
-        # Trigger JIT compilation
-        res = add(1, 2)
-        return {"status": "ok", "result": int(res)}
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
-
-
-@app.get("/api/test_rembg")
-async def test_rembg():
-    try:
-        from PIL import Image
-        import io
-        from rembg import remove
-        
-        # Create a tiny 50x50 RGB image
-        img = Image.new("RGB", (50, 50), (255, 0, 0))
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format="PNG")
-        img_data = img_bytes.getvalue()
-        
-        logger.info("Calling rembg.remove on dummy image...")
-        out_data = remove(img_data, session=get_rembg_session())
-        logger.info("rembg.remove completed successfully!")
-        return {"status": "ok", "output_length": len(out_data)}
-    except Exception as e:
-        logger.error(f"test_rembg failed: {e}")
-        return {"status": "error", "message": str(e)}
 
 
 # Serve static files from Vite build directory in production
 if os.path.exists("dist"):
     from fastapi.staticfiles import StaticFiles
     app.mount("/", StaticFiles(directory="dist", html=True), name="static")
-
