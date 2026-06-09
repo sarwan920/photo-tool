@@ -7,6 +7,10 @@
  *  - Pillow for high-quality resize & composite
  */
 
+const API_BASE = import.meta.env.PROD 
+  ? 'https://photo-tool.fastapicloud.dev' 
+  : '';
+
 /**
  * Process a photo via the Python backend API.
  */
@@ -20,7 +24,7 @@ export async function processPhoto(file, spec, onProgress) {
 
   onProgress?.({ step: 'removing', message: 'Removing background & cropping...' });
 
-  const response = await fetch('/api/process', {
+  const response = await fetch(`${API_BASE}/api/process`, {
     method: 'POST',
     body: formData,
   });
