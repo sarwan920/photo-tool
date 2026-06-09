@@ -323,6 +323,25 @@ async def diag():
     return packages
 
 
+@app.get("/api/test_ort_load")
+async def test_ort_load():
+    import onnxruntime as ort
+    import os
+    
+    home = os.path.expanduser("~")
+    u2net_dir = os.environ.get("U2NET_HOME", os.path.join(home, ".u2net"))
+    model_path = os.path.join(u2net_dir, "u2netp.onnx")
+    
+    try:
+        logger.info(f"Initializing InferenceSession directly for {model_path}...")
+        sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        logger.info("InferenceSession initialized successfully!")
+        return {"status": "ok", "message": "InferenceSession initialized successfully!"}
+    except Exception as e:
+        logger.error(f"InferenceSession failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # Serve static files from Vite build directory in production
 if os.path.exists("dist"):
     from fastapi.staticfiles import StaticFiles
