@@ -316,6 +316,7 @@ async def diag():
         u2net_writable = str(e)
 
     # Gather package versions
+    import platform
     packages = {
         "python": sys.version,
         "numpy": np.__version__,
@@ -324,6 +325,9 @@ async def diag():
         "u2net_dir": u2net_dir,
         "u2net_exists": u2net_exists,
         "u2net_writable": u2net_writable,
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
     }
     return packages
 
