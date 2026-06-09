@@ -15,6 +15,9 @@ import os
 os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
 # Configure U2NET_HOME to point to the pre-packaged models directory inside the server package
 os.environ["U2NET_HOME"] = os.path.join(os.path.dirname(__file__), "models")
+# Configure Numba environment variables to avoid crash in serverless/read-only container environments
+os.environ["NUMBA_CACHE_DIR"] = "/tmp/numba_cache"
+os.environ["NUMBA_NUM_THREADS"] = "1"
 import logging
 from contextlib import asynccontextmanager
 
@@ -339,6 +342,43 @@ async def test_ort_load():
         return {"status": "ok", "message": "InferenceSession initialized successfully!"}
     except Exception as e:
         logger.error(f"InferenceSession failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/test_numba")
+async def test_numba():
+    try:
+        from numba import jit
+        @jit(nopython=True)
+        def add(a, b):
+            return a + b
+        
+        # Trigger JIT compilation
+        res = add(1, 2)
+        return {"status": "ok", "result": int(res)}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@app.get("/api/test_rembg")
+async def test_rembg():
+    try:
+        from PIL import Image
+        import io
+        from rembg import remove
+        
+        # Create a tiny 50x50 RGB image
+        img = Image.new("RGB", (50, 50), (255, 0, 0))
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format="PNG")
+        img_data = img_bytes.getvalue()
+        
+        logger.info("Calling rembg.remove on dummy image...")
+        out_data = remove(img_data, session=get_rembg_session())
+        logger.info("rembg.remove completed successfully!")
+        return {"status": "ok", "output_length": len(out_data)}
+    except Exception as e:
+        logger.error(f"test_rembg failed: {e}")
         return {"status": "error", "message": str(e)}
 
 
