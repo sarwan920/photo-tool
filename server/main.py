@@ -345,6 +345,37 @@ async def test_ort_load():
         return {"status": "error", "message": str(e)}
 
 
+@app.get("/api/test_ort_run")
+async def test_ort_run():
+    import onnxruntime as ort
+    import os
+    import numpy as np
+    
+    home = os.path.expanduser("~")
+    u2net_dir = os.environ.get("U2NET_HOME", os.path.join(home, ".u2net"))
+    model_path = os.path.join(u2net_dir, "u2netp.onnx")
+    
+    try:
+        logger.info(f"Initializing InferenceSession directly for {model_path}...")
+        sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        
+        # Get input name and shape
+        input_name = sess.get_inputs()[0].name
+        # Input shape for u2netp is [1, 3, 320, 320]
+        logger.info(f"Input name: {input_name}")
+        
+        # Create a dummy input array
+        dummy_input = np.random.randn(1, 3, 320, 320).astype(np.float32)
+        
+        logger.info("Running inference directly...")
+        res = sess.run(None, {input_name: dummy_input})
+        logger.info("Inference completed successfully!")
+        return {"status": "ok", "outputs_count": len(res), "output_shape": res[0].shape}
+    except Exception as e:
+        logger.error(f"test_ort_run failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/api/test_numba")
 async def test_numba():
     try:
