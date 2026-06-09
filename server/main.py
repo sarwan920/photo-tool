@@ -10,6 +10,9 @@ Pipeline:
 
 import io
 import os
+# Disable CPU affinity in ONNX Runtime BEFORE importing rembg (which loads onnxruntime)
+# to prevent thread affinity segmentation faults in virtualized/container environments.
+os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
 import logging
 from contextlib import asynccontextmanager
 
@@ -32,8 +35,6 @@ rembg_session = None
 async def lifespan(app: FastAPI):
     global rembg_session
     logger.info("Loading rembg model (one-time)...")
-    # Disable CPU affinity in ONNX Runtime to prevent thread affinity segmentation faults in virtualized cloud environments
-    os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
     rembg_session = new_session("u2net", providers=["CPUExecutionProvider"])
     logger.info("rembg model loaded successfully.")
     yield
