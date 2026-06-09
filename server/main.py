@@ -31,12 +31,31 @@ logging.basicConfig(level=logging.INFO)
 
 rembg_session = None
 
+def get_rembg_session():
+    global rembg_session
+    if rembg_session is None:
+        # Check if the cached model file is corrupted/incomplete (from an interrupted download)
+        home = os.path.expanduser("~")
+        model_path = os.path.join(home, ".u2net", "u2net.onnx")
+        if os.path.exists(model_path):
+            file_size = os.path.getsize(model_path)
+            logger.info(f"Model cache check: found {model_path} ({file_size} bytes)")
+            # u2net.onnx is 176,306,170 bytes. If it's less than 170MB, it's corrupted/incomplete
+            if file_size < 170000000:
+                logger.warning(f"Cached model {model_path} is incomplete or corrupted. Deleting to force redownload...")
+                try:
+                    os.remove(model_path)
+                except Exception as e:
+                    logger.error(f"Failed to delete corrupted model: {e}")
+        
+        logger.info("Loading rembg model (lazy-load)...")
+        rembg_session = new_session("u2net", providers=["CPUExecutionProvider"])
+        logger.info("rembg model loaded successfully.")
+    return rembg_session
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global rembg_session
-    logger.info("Loading rembg model (one-time)...")
-    rembg_session = new_session("u2net", providers=["CPUExecutionProvider"])
-    logger.info("rembg model loaded successfully.")
+    logger.info("FastAPI backend starting up...")
     yield
 
 app = FastAPI(title="Visa Photo API", lifespan=lifespan)
@@ -213,7 +232,7 @@ async def process_photo(
     logger.info("Removing background...")
     nobg_bytes = remove(
         contents,
-        session=rembg_session,
+        session=get_rembg_session(),
         bgcolor=None,
     )
     nobg_img = Image.open(io.BytesIO(nobg_bytes)).convert("RGBA")
