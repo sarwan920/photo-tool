@@ -2,14 +2,17 @@
 Visa Photo Processor — Python FastAPI Backend
 
 Pipeline:
-  1. Remove background using OpenCV GrabCut (stable, fast, CPU-friendly)
+  1. Remove background using rembg (U2-Net / ISNet — deep learning, high quality edges)
   2. Detect face using OpenCV Haar Cascade
-  3. Smart-crop so face fills ~70% of the frame (visa standard)
+  3. Smart-crop so face fills the visa-standard proportion of the frame
   4. Composite onto white background at EXACT visa dimensions
 """
 
 import io
 import os
+# Disable CPU affinity mapping in ONNX Runtime to avoid segfaults in virtualized/container CPU limits
+os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -18,15 +21,39 @@ import numpy as np
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from PIL import Image
+from PIL import Image, ImageFilter
+from rembg import remove, new_session
 
 logger = logging.getLogger("visa-photo")
 logging.basicConfig(level=logging.INFO)
 
+# ─── Globals ──────────────────────────────────────────────────
+
+# Loaded once at startup so requests are fast.
+# "isnet-general-use" gives the cleanest edges for portraits/hair.
+# Alternatives: "u2net_human_seg" (faster, slightly less precise on hair),
+# "u2net" (general purpose default).
+REMBG_MODEL_NAME = os.environ.get("REMBG_MODEL", "isnet-general-use")
+rembg_session = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("FastAPI backend starting up...")
+    global rembg_session
+    logger.info(f"Loading rembg model '{REMBG_MODEL_NAME}'...")
+    try:
+        rembg_session = new_session(REMBG_MODEL_NAME)
+        logger.info(f"rembg model '{REMBG_MODEL_NAME}' loaded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to load rembg model '{REMBG_MODEL_NAME}': {e}. Falling back to 'u2netp'...")
+        try:
+            rembg_session = new_session("u2netp")
+            logger.info("Fallback rembg model 'u2netp' loaded successfully.")
+        except Exception as e2:
+            logger.critical(f"Failed to load fallback rembg model 'u2netp': {e2}")
+            rembg_session = None
     yield
+
 
 app = FastAPI(title="Visa Photo API", lifespan=lifespan)
 
@@ -48,11 +75,10 @@ face_cascade = cv2.CascadeClassifier(
 def detect_face(img_array: np.ndarray) -> dict | None:
     """
     Detect the largest face in the image using OpenCV Haar Cascade.
-    Optimized to run on a downscaled image for speed, then scale coordinates back.
+    Runs on a downscaled image for speed, then scales coordinates back.
     """
     orig_h, orig_w = img_array.shape[:2]
-    
-    # Downscale for fast face detection
+
     max_dim = 1000
     scale = 1.0
     if max(orig_w, orig_h) > max_dim:
@@ -64,165 +90,72 @@ def detect_face(img_array: np.ndarray) -> dict | None:
         img_small = img_array
 
     gray = cv2.cvtColor(img_small, cv2.COLOR_RGB2GRAY)
+    gray = cv2.equalizeHist(gray)
 
-    for scale_factor in [1.1, 1.05, 1.2, 1.3]:
+    for scale_factor in [1.05, 1.1, 1.2, 1.3]:
         faces = face_cascade.detectMultiScale(
             gray,
             scaleFactor=scale_factor,
             minNeighbors=5,
-            minSize=(30, 30),
+            minSize=(60, 60),
             flags=cv2.CASCADE_SCALE_IMAGE,
         )
         if len(faces) > 0:
-            # Sort by area (descending) to get the largest face
             faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
             x, y, w, h = faces[0]
-            
-            # Scale coordinates back to original size
+
             if scale != 1.0:
                 x = int(round(x / scale))
                 y = int(round(y / scale))
                 w = int(round(w / scale))
                 h = int(round(h / scale))
-                
-            logger.info(f"Face detected (scaled back): x={x}, y={y}, w={w}, h={h}")
+
+            logger.info(f"Face detected: x={x}, y={y}, w={w}, h={h}")
             return {"x": x, "y": y, "w": w, "h": h}
 
     logger.warning("No face detected")
     return None
 
 
-# ─── GrabCut Background Removal ────────────────────────────────
+# ─── AI Background Removal (rembg) ─────────────────────────────
 
-def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
+def remove_background_ai(pil_img: Image.Image) -> Image.Image:
     """
-    Remove background using OpenCV GrabCut algorithm.
-    Optimized for speed, high resolution, and clothing/shoulder preservation.
+    Remove background using rembg (deep learning segmentation).
+    Produces clean, accurate edges including hair detail.
+    Returns an RGBA image with transparent background.
     """
-    orig_w, orig_h = pil_img.width, pil_img.height
-    img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGBA2BGR)
+    global rembg_session
+    if rembg_session is None:
+        logger.warning("rembg session was not initialized. Loading fallback model 'u2netp' lazily...")
+        try:
+            rembg_session = new_session("u2netp")
+        except Exception as e:
+            logger.critical(f"Failed to load rembg model 'u2netp' lazily: {e}")
+            raise HTTPException(status_code=500, detail="Background removal model could not be loaded")
 
-    # 1. Downscale for fast segmentation if too large
-    # Reduced max_dim to 400 for 4x speedup on serverless CPU
-    max_dim = 400
-    scale = 1.0
-    if max(orig_w, orig_h) > max_dim:
-        scale = max_dim / max(orig_w, orig_h)
-        w_scaled = int(orig_w * scale)
-        h_scaled = int(orig_h * scale)
-        img_small = cv2.resize(img, (w_scaled, h_scaled), interpolation=cv2.INTER_AREA)
-    else:
-        img_small = img
-        w_scaled, h_scaled = orig_w, orig_h
+    rgb_img = pil_img.convert("RGB")
 
-    # 2. Initialize GrabCut mask
-    mask = np.full((h_scaled, w_scaled), cv2.GC_PR_BGD, dtype=np.uint8)
+    result = remove(
+        rgb_img,
+        session=rembg_session,
+        alpha_matting=True,
+        alpha_matting_foreground_threshold=240,
+        alpha_matting_background_threshold=15,
+        alpha_matting_erode_size=5,
+    )
 
-    # 3. Detect face on the scaled image for boundary anchoring
-    gray = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
-    
-    # Run face detection
-    faces = []
-    for sf in [1.1, 1.05, 1.2, 1.3]:
-        faces = face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=sf,
-            minNeighbors=5,
-            minSize=(30, 30),
-            flags=cv2.CASCADE_SCALE_IMAGE,
-        )
-        if len(faces) > 0:
-            break
+    # `remove()` returns RGBA already
+    if result.mode != "RGBA":
+        result = result.convert("RGBA")
 
-    # Determine y-cutoff (shoulder line) below which we NEVER mark borders as background
-    if len(faces) > 0:
-        # Sort by size to get largest face
-        faces_sorted = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        fx, fy, fw, fh = faces_sorted[0]
-        logger.info(f"GrabCut face detected: x={fx}, y={fy}, w={fw}, h={fh}")
-        
-        # Face core is definitely foreground
-        shrink_w = int(fw * 0.15)
-        shrink_h = int(fh * 0.15)
-        mask[fy+shrink_h:fy+fh-shrink_h, fx+shrink_w:fx+fw-shrink_w] = cv2.GC_FGD
-        
-        # Neck and center torso column as probably foreground
-        tx1 = max(0, fx - int(fw * 0.2))
-        tx2 = min(w_scaled, fx + fw + int(fw * 0.2))
-        ty1 = fy + fh
-        ty2 = h_scaled
-        mask[ty1:ty2, tx1:tx2] = cv2.GC_PR_FGD
-        
-        # Head/torso region is probably foreground
-        px1 = max(0, fx - int(fw * 1.5))
-        py1 = max(0, fy - int(fh * 0.7))
-        px2 = min(w_scaled, fx + fw + int(fw * 1.5))
-        py2 = h_scaled
-        
-        # Update probably foreground where it is not definitely background
-        pr_fg_mask = (mask != cv2.GC_BGD) & (mask != cv2.GC_FGD)
-        mask[py1:py2, px1:px2] = np.where(pr_fg_mask[py1:py2, px1:px2], cv2.GC_PR_FGD, mask[py1:py2, px1:px2])
-    else:
-        # Fallback: central oval is probably foreground
-        logger.warning("GrabCut face detection failed; using fallback central oval")
-        cv2.ellipse(mask, (w_scaled//2, h_scaled//2), (int(w_scaled*0.35), int(h_scaled*0.45)), 0, 0, 360, cv2.GC_PR_FGD, -1)
+    # Light edge smoothing on the alpha channel to remove jagged/noisy
+    # pixels left over from matting, without softening the silhouette much.
+    r, g, b, a = result.split()
+    a = a.filter(ImageFilter.SMOOTH_MORE)
+    result = Image.merge("RGBA", (r, g, b, a))
 
-    # 4. Set outer borders to definitely background
-    # Top border (5% height) is definitely background
-    # Left and right side borders (very thin 2% width) are definitely background to provide seeds without clipping shoulders
-    border_w = max(1, int(w_scaled * 0.02))
-    border_h = max(1, int(h_scaled * 0.05))
-    
-    mask[0:border_h, :] = cv2.GC_BGD
-    mask[:, 0:border_w] = cv2.GC_BGD
-    mask[:, w_scaled-border_w:w_scaled] = cv2.GC_BGD
-
-    # 5. Run GrabCut (Reduced iterations to 3 for speedup)
-    bgdModel = np.zeros((1, 65), np.float64)
-    fgdModel = np.zeros((1, 65), np.float64)
-    try:
-        cv2.grabCut(img_small, mask, None, bgdModel, fgdModel, 3, cv2.GC_INIT_WITH_MASK)
-    except Exception as e:
-        logger.error(f"GrabCut execution failed: {e}")
-        # Fallback to simple mask if GrabCut fails
-        mask = np.where((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD), cv2.GC_PR_FGD, cv2.GC_BGD).astype(np.uint8)
-
-    # Get binary mask
-    bin_mask_small = np.where((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD), 255, 0).astype(np.uint8)
-
-    # 6. Upscale mask to original size if downscaled
-    if scale != 1.0:
-        bin_mask = cv2.resize(bin_mask_small, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
-    else:
-        bin_mask = bin_mask_small
-
-    # 7. Post-processing: Fill internal holes and apply soft anti-aliased feathering
-    # Find contours to identify foreground region and fill any internal holes (e.g. dark shirt details)
-    contours, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        clean_mask = np.zeros_like(bin_mask)
-        cv2.drawContours(clean_mask, contours, -1, 255, thickness=cv2.FILLED)
-        bin_mask = clean_mask
-
-    # Shave the mask edges (erosion) to remove background bleeding / grey border
-    erode_size = int(max(orig_w, orig_h) * 0.003) | 1
-    kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_size, erode_size))
-    bin_mask = cv2.erode(bin_mask, kernel_erode, iterations=1)
-
-    # Soft anti-aliased feathering using Gaussian Blur + contrast adjustment
-    blur_size = int(max(orig_w, orig_h) * 0.008) | 1
-    blurred = cv2.GaussianBlur(bin_mask, (blur_size, blur_size), 0)
-    
-    contrast = 4.0
-    feathered = np.clip((blurred.astype(np.float32) / 255.0 - 0.5) * contrast + 0.5, 0.0, 1.0) * 255.0
-    feathered_mask = feathered.astype(np.uint8)
-
-    # 8. Apply mask to create transparent image
-    mask_pil = Image.fromarray(feathered_mask).convert("L")
-    transparent = Image.new("RGBA", (orig_w, orig_h))
-    transparent.paste(pil_img, (0, 0), mask=mask_pil)
-
-    return transparent
+    return result
 
 
 # ─── Smart Visa Crop ─────────────────────────────────────────
@@ -233,11 +166,12 @@ def calculate_visa_crop(
     target_w: int, target_h: int,
 ) -> tuple[int, int, int, int]:
     """
-    Calculate the crop region so the face fills ~75-85% of the frame height.
+    Calculate the crop region so the face fills the visa-standard proportion
+    of the frame.
 
-    Visa photo standards:
-      - Head (chin to crown + hair) ≈ 75-85% of photo height
-      - ~8% margin above head
+    Visa photo standards (typical):
+      - Head (chin to crown including hair) ≈ 70-80% of photo height
+      - Small margin above the head
       - Shoulders visible below
       - Face horizontally centered
 
@@ -252,28 +186,28 @@ def calculate_visa_crop(
     fx, fy, fw, fh = face["x"], face["y"], face["w"], face["h"]
     face_cx = fx + fw / 2
 
-    # Get actual top of hair/head from non-transparent bbox
+    # Get actual top of hair/head from non-transparent bbox of the
+    # rembg-cut subject (much more accurate than estimating from face box).
     bbox = nobg_img.getbbox()
-    actual_hair_top = bbox[1] if bbox else 0
+    actual_hair_top = bbox[1] if bbox else fy
 
-    # Bounding box upper bound is the actual top of the hair.
-    # The bottom of the face box is approx the chin: fy + fh.
-    calculated_head_height = (fy + fh) - actual_hair_top
-    
-    # Add safety clamps (head height should be between 1.15x and 1.6x face height)
-    head_height = max(fh * 1.15, min(fh * 1.6, calculated_head_height))
-    
-    # The top of head
-    head_top = (fy + fh) - head_height
+    # Chin is approximately at the bottom of the detected face box.
+    chin_y = fy + fh
 
-    # Head should occupy ~65% of the crop height.
-    ideal_crop_h = head_height / 0.65
+    # Real head height = hair top to chin.
+    head_height = max(1.0, chin_y - actual_hair_top)
+
+    # Head should occupy ~62% of the crop height (good middle ground for
+    # most visa specs that require head height 50-80% of photo height).
+    HEAD_RATIO = 0.62
+    ideal_crop_h = head_height / HEAD_RATIO
     ideal_crop_w = ideal_crop_h * target_aspect
 
-    # Head should start at ~3.6% from the top of the crop
-    ideal_crop_y = head_top - ideal_crop_h * 0.036
-    
-    # Center horizontally on face
+    # Top margin above the head ≈ 8% of crop height
+    TOP_MARGIN_RATIO = 0.08
+    ideal_crop_y = actual_hair_top - ideal_crop_h * TOP_MARGIN_RATIO
+
+    # Center horizontally on the face
     ideal_crop_x = face_cx - ideal_crop_w / 2
 
     # ── Constrain size to image bounds while preserving aspect ratio ──
@@ -284,19 +218,17 @@ def calculate_visa_crop(
         crop_h = float(img_h)
         crop_w = crop_h * target_aspect
 
-    # Recompute position after constraining size
+    # Recompute x position centered on face after constraining size
     crop_x = face_cx - crop_w / 2
-    
-    # Keep vertical position based on head, but adjust for new size
-    head_margin_ratio = 0.036
-    if ideal_crop_h > 0:
-        head_rel_y = (head_top - ideal_crop_y) / ideal_crop_h
-    else:
-        head_rel_y = head_margin_ratio
-    crop_y = head_top - crop_h * head_rel_y
 
-    # Allow crop to extend outside image bounds (Pillow will pad with transparency)
-    # but keep it constrained so it doesn't shift completely off-screen.
+    # Recompute y, preserving the head's relative position within the crop
+    if ideal_crop_h > 0:
+        head_rel_y = (actual_hair_top - ideal_crop_y) / ideal_crop_h
+    else:
+        head_rel_y = TOP_MARGIN_RATIO
+    crop_y = actual_hair_top - crop_h * head_rel_y
+
+    # Allow slight overflow padding (transparent areas filled with white later)
     max_pad_w = crop_w * 0.15
     max_pad_h = crop_h * 0.15
     crop_x = max(-max_pad_w, min(crop_x, img_w - crop_w + max_pad_w))
@@ -326,6 +258,31 @@ def _center_crop(img_w: int, img_h: int, target_aspect: float):
     return (x, y, crop_w, crop_h)
 
 
+# ─── Helper: safe crop with transparent padding for out-of-bounds ──────
+
+def crop_with_padding(img: Image.Image, box: tuple[int, int, int, int]) -> Image.Image:
+    """
+    Crop `img` to `box` (x, y, w, h). If the box extends beyond the image
+    bounds, pad with transparent pixels instead of erroring or clamping.
+    """
+    x, y, w, h = box
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+
+    src_x1 = max(0, x)
+    src_y1 = max(0, y)
+    src_x2 = min(img.width, x + w)
+    src_y2 = min(img.height, y + h)
+
+    if src_x2 <= src_x1 or src_y2 <= src_y1:
+        return canvas
+
+    region = img.crop((src_x1, src_y1, src_x2, src_y2))
+    paste_x = src_x1 - x
+    paste_y = src_y1 - y
+    canvas.paste(region, (paste_x, paste_y))
+    return canvas
+
+
 # ─── API Endpoint ─────────────────────────────────────────────
 
 @app.post("/api/process")
@@ -336,14 +293,17 @@ async def process_photo(
 ):
     """
     Process a photo for visa use.
-    Returns a PNG with EXACT target dimensions.
+    Returns a PNG with EXACT target dimensions, white background.
     """
-    # Read and validate image
     contents = await file.read()
     try:
-        pil_img = Image.open(io.BytesIO(contents)).convert("RGBA")
+        pil_img = Image.open(io.BytesIO(contents))
+        pil_img = ImageOps_exif_transpose(pil_img).convert("RGBA")
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file")
+
+    if width_px <= 0 or height_px <= 0:
+        raise HTTPException(status_code=400, detail="width_px and height_px must be positive")
 
     orig_w, orig_h = pil_img.width, pil_img.height
     img_array = np.array(pil_img.convert("RGB"))
@@ -352,32 +312,27 @@ async def process_photo(
     # Step 1: Detect face on original image (before bg removal)
     face = detect_face(img_array)
 
-    # Step 2: Remove background
-    logger.info("Removing background...")
-    nobg_img = remove_background_grabcut(pil_img)
+    # Step 2: Remove background with AI model
+    logger.info("Removing background (rembg)...")
+    nobg_img = remove_background_ai(pil_img)
     logger.info(f"Background removed. Size: {nobg_img.width}x{nobg_img.height}")
 
-    # Step 3: Smart crop
-    crop_x, crop_y, crop_w, crop_h = calculate_visa_crop(
-        nobg_img, face, width_px, height_px
-    )
+    # Step 3: Smart crop based on face position
+    crop_box = calculate_visa_crop(nobg_img, face, width_px, height_px)
+    logger.info(f"Crop: x={crop_box[0]}, y={crop_box[1]}, w={crop_box[2]}, h={crop_box[3]}")
 
-    logger.info(f"Crop: x={crop_x}, y={crop_y}, w={crop_w}, h={crop_h}")
-
-    cropped = nobg_img.crop((crop_x, crop_y, crop_x + crop_w, crop_y + crop_h))
+    cropped = crop_with_padding(nobg_img, crop_box)
 
     # Step 4: Resize to EXACT target dimensions using high-quality LANCZOS
     cropped_resized = cropped.resize((width_px, height_px), Image.Resampling.LANCZOS)
 
-    # Step 5: Composite onto white background
+    # Step 5: Composite onto solid white background
     final = Image.new("RGB", (width_px, height_px), (255, 255, 255))
     final.paste(cropped_resized, (0, 0), cropped_resized)
 
-    # Verify exact dimensions
     assert final.size == (width_px, height_px), \
         f"Output size mismatch: got {final.size}, expected ({width_px}, {height_px})"
 
-    # ── Output optimized PNG with 300 DPI metadata for print-readiness ──
     output = io.BytesIO()
     final.save(output, format="PNG", optimize=True, dpi=(300, 300))
     output.seek(0)
@@ -398,24 +353,29 @@ async def process_photo(
     )
 
 
+def ImageOps_exif_transpose(img: Image.Image) -> Image.Image:
+    """Apply EXIF orientation so phone photos aren't rotated/mirrored."""
+    from PIL import ImageOps
+    return ImageOps.exif_transpose(img)
+
+
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "model": REMBG_MODEL_NAME}
 
 
 @app.get("/api/diag")
 async def diag():
     import sys
-    import numpy as np
     import platform
-    
-    packages = {
+
+    return {
         "python": sys.version,
         "numpy": np.__version__,
         "platform": platform.platform(),
         "machine": platform.machine(),
+        "rembg_model": REMBG_MODEL_NAME,
     }
-    return packages
 
 
 # Serve static files from Vite build directory in production

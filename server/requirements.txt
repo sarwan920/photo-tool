@@ -4,3 +4,4 @@ python-multipart
 Pillow
 opencv-python-headless
 numpy<2
+rembg
