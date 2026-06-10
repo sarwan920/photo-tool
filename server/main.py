@@ -48,23 +48,45 @@ face_cascade = cv2.CascadeClassifier(
 def detect_face(img_array: np.ndarray) -> dict | None:
     """
     Detect the largest face in the image using OpenCV Haar Cascade.
-    Returns { x, y, w, h } or None.
+    Optimized to run on a downscaled image for speed, then scale coordinates back.
     """
-    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    orig_h, orig_w = img_array.shape[:2]
+    
+    # Downscale for fast face detection
+    max_dim = 1000
+    scale = 1.0
+    if max(orig_w, orig_h) > max_dim:
+        scale = max_dim / max(orig_w, orig_h)
+        w_scaled = int(orig_w * scale)
+        h_scaled = int(orig_h * scale)
+        img_small = cv2.resize(img_array, (w_scaled, h_scaled), interpolation=cv2.INTER_AREA)
+    else:
+        img_small = img_array
 
-    for scale in [1.1, 1.05, 1.2, 1.3]:
+    gray = cv2.cvtColor(img_small, cv2.COLOR_RGB2GRAY)
+
+    for scale_factor in [1.1, 1.05, 1.2, 1.3]:
         faces = face_cascade.detectMultiScale(
             gray,
-            scaleFactor=scale,
+            scaleFactor=scale_factor,
             minNeighbors=5,
             minSize=(30, 30),
             flags=cv2.CASCADE_SCALE_IMAGE,
         )
         if len(faces) > 0:
+            # Sort by area (descending) to get the largest face
             faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
             x, y, w, h = faces[0]
-            logger.info(f"Face detected: x={x}, y={y}, w={w}, h={h}")
-            return {"x": int(x), "y": int(y), "w": int(w), "h": int(h)}
+            
+            # Scale coordinates back to original size
+            if scale != 1.0:
+                x = int(round(x / scale))
+                y = int(round(y / scale))
+                w = int(round(w / scale))
+                h = int(round(h / scale))
+                
+            logger.info(f"Face detected (scaled back): x={x}, y={y}, w={w}, h={h}")
+            return {"x": x, "y": y, "w": w, "h": h}
 
     logger.warning("No face detected")
     return None
@@ -75,7 +97,7 @@ def detect_face(img_array: np.ndarray) -> dict | None:
 def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     """
     Remove background using OpenCV GrabCut algorithm.
-    Optimized for speed and high resolution.
+    Optimized for speed, high resolution, and clothing/shoulder preservation.
     """
     orig_w, orig_h = pil_img.width, pil_img.height
     img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGBA2BGR)
@@ -95,18 +117,10 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     # 2. Initialize GrabCut mask
     mask = np.full((h_scaled, w_scaled), cv2.GC_PR_BGD, dtype=np.uint8)
 
-    # Set outer borders to definitely background (5% border)
-    border_w = max(1, int(w_scaled * 0.05))
-    border_h = max(1, int(h_scaled * 0.05))
-    mask[0:border_h, :] = cv2.GC_BGD
-    mask[h_scaled-border_h:h_scaled, :] = cv2.GC_BGD
-    mask[:, 0:border_w] = cv2.GC_BGD
-    mask[:, w_scaled-border_w:w_scaled] = cv2.GC_BGD
-
-    # 3. Detect face on the scaled image
+    # 3. Detect face on the scaled image for boundary anchoring
     gray = cv2.cvtColor(img_small, cv2.COLOR_BGR2GRAY)
     
-    # Run face detection with multiple scale factors to ensure success
+    # Run face detection
     faces = []
     for sf in [1.1, 1.05, 1.2, 1.3]:
         faces = face_cascade.detectMultiScale(
@@ -119,10 +133,11 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
         if len(faces) > 0:
             break
 
+    # Determine y-cutoff (shoulder line) below which we NEVER mark borders as background
     if len(faces) > 0:
         # Sort by size to get largest face
-        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
-        fx, fy, fw, fh = faces[0]
+        faces_sorted = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+        fx, fy, fw, fh = faces_sorted[0]
         logger.info(f"GrabCut face detected: x={fx}, y={fy}, w={fw}, h={fh}")
         
         # Face core is definitely foreground
@@ -139,12 +154,28 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
         # Update probably foreground where it is not definitely background
         pr_fg_mask = (mask != cv2.GC_BGD) & (mask != cv2.GC_FGD)
         mask[py1:py2, px1:px2] = np.where(pr_fg_mask[py1:py2, px1:px2], cv2.GC_PR_FGD, mask[py1:py2, px1:px2])
+        
+        # Shoulder line: chin + 20% of face height
+        shoulder_y = fy + fh + int(fh * 0.2)
     else:
         # Fallback: central oval is probably foreground
         logger.warning("GrabCut face detection failed; using fallback central oval")
         cv2.ellipse(mask, (w_scaled//2, h_scaled//2), (int(w_scaled*0.35), int(h_scaled*0.45)), 0, 0, 360, cv2.GC_PR_FGD, -1)
+        shoulder_y = int(h_scaled * 0.5)
 
-    # 4. Run GrabCut
+    # 4. Set outer borders to definitely background (5% border)
+    # BUT only above shoulder_y to avoid marking clothes/body as background
+    border_w = max(1, int(w_scaled * 0.05))
+    border_h = max(1, int(h_scaled * 0.05))
+    
+    # Top border is definitely background
+    mask[0:border_h, :] = cv2.GC_BGD
+    
+    # Left and right borders (only down to shoulder_y)
+    mask[0:min(h_scaled, shoulder_y), 0:border_w] = cv2.GC_BGD
+    mask[0:min(h_scaled, shoulder_y), w_scaled-border_w:w_scaled] = cv2.GC_BGD
+
+    # 5. Run GrabCut
     bgdModel = np.zeros((1, 65), np.float64)
     fgdModel = np.zeros((1, 65), np.float64)
     try:
@@ -157,7 +188,7 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     # Get binary mask
     bin_mask_small = np.where((mask == cv2.GC_PR_FGD) | (mask == cv2.GC_FGD), 255, 0).astype(np.uint8)
 
-    # 5. Upscale mask to original size if downscaled
+    # 6. Upscale mask to original size if downscaled
     if scale != 1.0:
         bin_mask = cv2.resize(bin_mask_small, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
     else:
@@ -167,7 +198,7 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     bin_mask = cv2.bilateralFilter(bin_mask, 9, 75, 75)
     bin_mask = np.where(bin_mask > 127, 255, 0).astype(np.uint8)
 
-    # 6. Apply mask to create transparent image
+    # 7. Apply mask to create transparent image
     mask_pil = Image.fromarray(bin_mask).convert("L")
     transparent = Image.new("RGBA", (orig_w, orig_h))
     transparent.paste(pil_img, (0, 0), mask=mask_pil)
