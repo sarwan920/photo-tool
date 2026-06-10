@@ -146,35 +146,36 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
         shrink_h = int(fh * 0.15)
         mask[fy+shrink_h:fy+fh-shrink_h, fx+shrink_w:fx+fw-shrink_w] = cv2.GC_FGD
         
+        # Neck and center torso column as probably foreground
+        tx1 = max(0, fx - int(fw * 0.2))
+        tx2 = min(w_scaled, fx + fw + int(fw * 0.2))
+        ty1 = fy + fh
+        ty2 = h_scaled
+        mask[ty1:ty2, tx1:tx2] = cv2.GC_PR_FGD
+        
         # Head/torso region is probably foreground
-        px1 = max(0, fx - int(fw * 1.2))
+        px1 = max(0, fx - int(fw * 1.5))
         py1 = max(0, fy - int(fh * 0.7))
-        px2 = min(w_scaled, fx + fw + int(fw * 1.2))
+        px2 = min(w_scaled, fx + fw + int(fw * 1.5))
         py2 = h_scaled
         
         # Update probably foreground where it is not definitely background
         pr_fg_mask = (mask != cv2.GC_BGD) & (mask != cv2.GC_FGD)
         mask[py1:py2, px1:px2] = np.where(pr_fg_mask[py1:py2, px1:px2], cv2.GC_PR_FGD, mask[py1:py2, px1:px2])
-        
-        # Shoulder line: chin + 20% of face height
-        shoulder_y = fy + fh + int(fh * 0.2)
     else:
         # Fallback: central oval is probably foreground
         logger.warning("GrabCut face detection failed; using fallback central oval")
         cv2.ellipse(mask, (w_scaled//2, h_scaled//2), (int(w_scaled*0.35), int(h_scaled*0.45)), 0, 0, 360, cv2.GC_PR_FGD, -1)
-        shoulder_y = int(h_scaled * 0.5)
 
-    # 4. Set outer borders to definitely background (5% border)
-    # BUT only above shoulder_y to avoid marking clothes/body as background
-    border_w = max(1, int(w_scaled * 0.05))
+    # 4. Set outer borders to definitely background
+    # Top border (5% height) is definitely background
+    # Left and right side borders (very thin 2% width) are definitely background to provide seeds without clipping shoulders
+    border_w = max(1, int(w_scaled * 0.02))
     border_h = max(1, int(h_scaled * 0.05))
     
-    # Top border is definitely background
     mask[0:border_h, :] = cv2.GC_BGD
-    
-    # Left and right borders (only down to shoulder_y)
-    mask[0:min(h_scaled, shoulder_y), 0:border_w] = cv2.GC_BGD
-    mask[0:min(h_scaled, shoulder_y), w_scaled-border_w:w_scaled] = cv2.GC_BGD
+    mask[:, 0:border_w] = cv2.GC_BGD
+    mask[:, w_scaled-border_w:w_scaled] = cv2.GC_BGD
 
     # 5. Run GrabCut (Reduced iterations to 3 for speedup)
     bgdModel = np.zeros((1, 65), np.float64)
@@ -195,7 +196,7 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     else:
         bin_mask = bin_mask_small
 
-    # 7. Post-processing: Fill internal holes and apply soft feathering
+    # 7. Post-processing: Fill internal holes and apply soft anti-aliased feathering
     # Find contours to identify foreground region and fill any internal holes (e.g. dark shirt details)
     contours, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
@@ -203,13 +204,13 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
         cv2.drawContours(clean_mask, contours, -1, 255, thickness=cv2.FILLED)
         bin_mask = clean_mask
 
-    # Soft feathering using Gaussian Blur based on image size
-    ksize = int(max(orig_w, orig_h) * 0.005)
-    if ksize % 2 == 0:
-        ksize += 1
-    ksize = max(5, ksize)
+    # Soft anti-aliased feathering using Gaussian Blur + contrast adjustment
+    blur_size = int(max(orig_w, orig_h) * 0.01) | 1  # 1% of image size, must be odd
+    blurred = cv2.GaussianBlur(bin_mask, (blur_size, blur_size), 0)
     
-    feathered_mask = cv2.GaussianBlur(bin_mask, (ksize, ksize), 0)
+    contrast = 3.5
+    feathered = np.clip((blurred.astype(np.float32) / 255.0 - 0.5) * contrast + 0.5, 0.0, 1.0) * 255.0
+    feathered_mask = feathered.astype(np.uint8)
 
     # 8. Apply mask to create transparent image
     mask_pil = Image.fromarray(feathered_mask).convert("L")

@@ -12,13 +12,76 @@ const API_BASE = import.meta.env.PROD
   : '';
 
 /**
+ * Compress and downscale an image file on the client-side.
+ * Limits max dimension to 1200px and returns a compressed JPEG File object.
+ */
+function compressImageBeforeUpload(file, maxDim = 1200) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          },
+          'image/jpeg',
+          0.9
+        );
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
  * Process a photo via the Python backend API.
  */
 export async function processPhoto(file, spec, onProgress) {
+  onProgress?.({ step: 'removing', message: 'Preparing photo...' });
+
+  // Compress/resize on the client side before upload to prevent slow transfers and server timeouts
+  let uploadFile = file;
+  if (file.size > 200 * 1024) {
+    try {
+      uploadFile = await compressImageBeforeUpload(file, 1200);
+      console.log(`Compressed: ${(file.size/1024).toFixed(1)}KB -> ${(uploadFile.size/1024).toFixed(1)}KB`);
+    } catch (err) {
+      console.error('Client compression failed, using raw file:', err);
+    }
+  }
+
   onProgress?.({ step: 'removing', message: 'Uploading & detecting face...' });
 
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', uploadFile);
   formData.append('width_px', spec.widthPx.toString());
   formData.append('height_px', spec.heightPx.toString());
 
