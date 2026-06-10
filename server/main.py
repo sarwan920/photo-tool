@@ -103,7 +103,8 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGBA2BGR)
 
     # 1. Downscale for fast segmentation if too large
-    max_dim = 800
+    # Reduced max_dim to 400 for 4x speedup on serverless CPU
+    max_dim = 400
     scale = 1.0
     if max(orig_w, orig_h) > max_dim:
         scale = max_dim / max(orig_w, orig_h)
@@ -175,11 +176,11 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     mask[0:min(h_scaled, shoulder_y), 0:border_w] = cv2.GC_BGD
     mask[0:min(h_scaled, shoulder_y), w_scaled-border_w:w_scaled] = cv2.GC_BGD
 
-    # 5. Run GrabCut
+    # 5. Run GrabCut (Reduced iterations to 3 for speedup)
     bgdModel = np.zeros((1, 65), np.float64)
     fgdModel = np.zeros((1, 65), np.float64)
     try:
-        cv2.grabCut(img_small, mask, None, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_MASK)
+        cv2.grabCut(img_small, mask, None, bgdModel, fgdModel, 3, cv2.GC_INIT_WITH_MASK)
     except Exception as e:
         logger.error(f"GrabCut execution failed: {e}")
         # Fallback to simple mask if GrabCut fails
@@ -194,12 +195,24 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
     else:
         bin_mask = bin_mask_small
 
-    # Apply bilateral filter to smooth edges of the mask
-    bin_mask = cv2.bilateralFilter(bin_mask, 9, 75, 75)
-    bin_mask = np.where(bin_mask > 127, 255, 0).astype(np.uint8)
+    # 7. Post-processing: Fill internal holes and apply soft feathering
+    # Find contours to identify foreground region and fill any internal holes (e.g. dark shirt details)
+    contours, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        clean_mask = np.zeros_like(bin_mask)
+        cv2.drawContours(clean_mask, contours, -1, 255, thickness=cv2.FILLED)
+        bin_mask = clean_mask
 
-    # 7. Apply mask to create transparent image
-    mask_pil = Image.fromarray(bin_mask).convert("L")
+    # Soft feathering using Gaussian Blur based on image size
+    ksize = int(max(orig_w, orig_h) * 0.005)
+    if ksize % 2 == 0:
+        ksize += 1
+    ksize = max(5, ksize)
+    
+    feathered_mask = cv2.GaussianBlur(bin_mask, (ksize, ksize), 0)
+
+    # 8. Apply mask to create transparent image
+    mask_pil = Image.fromarray(feathered_mask).convert("L")
     transparent = Image.new("RGBA", (orig_w, orig_h))
     transparent.paste(pil_img, (0, 0), mask=mask_pil)
 
