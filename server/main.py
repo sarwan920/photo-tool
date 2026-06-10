@@ -204,11 +204,16 @@ def remove_background_grabcut(pil_img: Image.Image) -> Image.Image:
         cv2.drawContours(clean_mask, contours, -1, 255, thickness=cv2.FILLED)
         bin_mask = clean_mask
 
+    # Shave the mask edges (erosion) to remove background bleeding / grey border
+    erode_size = int(max(orig_w, orig_h) * 0.003) | 1
+    kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_size, erode_size))
+    bin_mask = cv2.erode(bin_mask, kernel_erode, iterations=1)
+
     # Soft anti-aliased feathering using Gaussian Blur + contrast adjustment
-    blur_size = int(max(orig_w, orig_h) * 0.01) | 1  # 1% of image size, must be odd
+    blur_size = int(max(orig_w, orig_h) * 0.008) | 1
     blurred = cv2.GaussianBlur(bin_mask, (blur_size, blur_size), 0)
     
-    contrast = 3.5
+    contrast = 4.0
     feathered = np.clip((blurred.astype(np.float32) / 255.0 - 0.5) * contrast + 0.5, 0.0, 1.0) * 255.0
     feathered_mask = feathered.astype(np.uint8)
 
