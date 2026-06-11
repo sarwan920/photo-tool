@@ -7,9 +7,8 @@
  *  - Pillow for high-quality resize & composite
  */
 
-const API_BASE = import.meta.env.PROD 
-  ? 'https://photo-tool.fastapicloud.dev' 
-  : '';
+// Same-origin in production (FastAPI serves dist/); dev uses Vite proxy for /api
+const API_BASE = '';
 
 /**
  * Compress and downscale an image file on the client-side.

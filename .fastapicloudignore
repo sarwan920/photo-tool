@@ -1,0 +1,2 @@
+# Include the Vite build output even though dist/ is in .gitignore
+!dist/

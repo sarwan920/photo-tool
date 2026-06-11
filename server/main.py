@@ -10,11 +10,17 @@ Pipeline:
 
 import io
 import os
+import threading
+
 # Disable CPU affinity mapping in ONNX Runtime to avoid segfaults in virtualized/container CPU limits
 os.environ["ORT_DISABLE_CPU_AFFINITY"] = "1"
 
+# Use bundled u2netp model when present — avoids a network download on every cold start
+_BUNDLED_MODELS = os.path.join(os.path.dirname(__file__), "models")
+if os.path.isfile(os.path.join(_BUNDLED_MODELS, "u2netp.onnx")):
+    os.environ.setdefault("U2NET_HOME", _BUNDLED_MODELS)
+
 import logging
-from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
@@ -33,29 +39,55 @@ logging.basicConfig(level=logging.INFO)
 # "isnet-general-use" gives the cleanest edges for portraits/hair.
 # Alternatives: "u2net_human_seg" (faster, slightly less precise on hair),
 # "u2net" (general purpose default).
-REMBG_MODEL_NAME = os.environ.get("REMBG_MODEL", "isnet-general-use")
+# u2netp (~4 MB) starts fast on FastAPI Cloud. isnet-general-use is ~179 MB and
+# will time out deploy health checks. Set REMBG_MODEL only if you have enough memory.
+_DEFAULT_MODEL = "u2netp"
+_has_bundled_model = os.path.isfile(os.path.join(_BUNDLED_MODELS, "u2netp.onnx"))
+_env_model = os.environ.get("REMBG_MODEL")
+if _has_bundled_model:
+    # Bundled u2netp avoids a 179 MB download; ignore REMBG_MODEL on cloud deploys.
+    if _env_model and _env_model != _DEFAULT_MODEL:
+        logger.warning(
+            "Ignoring REMBG_MODEL=%s — using bundled u2netp for fast cold starts. "
+            "Delete REMBG_MODEL from FastAPI Cloud env vars.",
+            _env_model,
+        )
+    REMBG_MODEL_NAME = _DEFAULT_MODEL
+else:
+    REMBG_MODEL_NAME = _env_model or _DEFAULT_MODEL
+
 rembg_session = None
+_rembg_lock = threading.Lock()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def _ensure_rembg_session() -> None:
+    """Lazy-load rembg on first request so deploy health checks pass immediately."""
     global rembg_session
-    logger.info(f"Loading rembg model '{REMBG_MODEL_NAME}'...")
-    try:
-        rembg_session = new_session(REMBG_MODEL_NAME)
-        logger.info(f"rembg model '{REMBG_MODEL_NAME}' loaded successfully.")
-    except Exception as e:
-        logger.error(f"Failed to load rembg model '{REMBG_MODEL_NAME}': {e}. Falling back to 'u2netp'...")
+    if rembg_session is not None:
+        return
+    with _rembg_lock:
+        if rembg_session is not None:
+            return
+        logger.info(f"Loading rembg model '{REMBG_MODEL_NAME}'...")
         try:
-            rembg_session = new_session("u2netp")
-            logger.info("Fallback rembg model 'u2netp' loaded successfully.")
-        except Exception as e2:
-            logger.critical(f"Failed to load fallback rembg model 'u2netp': {e2}")
-            rembg_session = None
-    yield
+            rembg_session = new_session(REMBG_MODEL_NAME)
+            logger.info(f"rembg model '{REMBG_MODEL_NAME}' loaded successfully.")
+        except Exception as e:
+            logger.error(
+                f"Failed to load rembg model '{REMBG_MODEL_NAME}': {e}. Falling back to 'u2netp'..."
+            )
+            try:
+                rembg_session = new_session(_DEFAULT_MODEL)
+                logger.info("Fallback rembg model 'u2netp' loaded successfully.")
+            except Exception as e2:
+                logger.critical(f"Failed to load fallback rembg model 'u2netp': {e2}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Background removal model could not be loaded",
+                )
 
 
-app = FastAPI(title="Visa Photo API", lifespan=lifespan)
+app = FastAPI(title="Visa Photo API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -125,14 +157,7 @@ def remove_background_ai(pil_img: Image.Image) -> Image.Image:
     Produces clean, accurate edges including hair detail.
     Returns an RGBA image with transparent background.
     """
-    global rembg_session
-    if rembg_session is None:
-        logger.warning("rembg session was not initialized. Loading fallback model 'u2netp' lazily...")
-        try:
-            rembg_session = new_session("u2netp")
-        except Exception as e:
-            logger.critical(f"Failed to load rembg model 'u2netp' lazily: {e}")
-            raise HTTPException(status_code=500, detail="Background removal model could not be loaded")
+    _ensure_rembg_session()
 
     rgb_img = pil_img.convert("RGB")
 
@@ -361,7 +386,17 @@ def ImageOps_exif_transpose(img: Image.Image) -> Image.Image:
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "model": REMBG_MODEL_NAME}
+    return {
+        "status": "ok",
+        "model": REMBG_MODEL_NAME,
+        "model_loaded": rembg_session is not None,
+    }
+
+
+@app.get("/health")
+async def health_root():
+    """Root health check used by deployment platforms."""
+    return {"status": "ok"}
 
 
 @app.get("/api/diag")
@@ -379,6 +414,7 @@ async def diag():
 
 
 # Serve static files from Vite build directory in production
-if os.path.exists("dist"):
+_DIST_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")
+if os.path.isdir(_DIST_DIR):
     from fastapi.staticfiles import StaticFiles
-    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+    app.mount("/", StaticFiles(directory=_DIST_DIR, html=True), name="static")

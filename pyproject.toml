@@ -1,0 +1,17 @@
+[project]
+name = "photo-tool"
+version = "0.1.0"
+description = "Visa Photo Processor API"
+requires-python = "==3.11.*"
+dependencies = [
+    "fastapi[standard]",
+    "python-multipart",
+    "Pillow",
+    "opencv-python-headless",
+    "numpy>=1.26,<2",
+    "rembg",
+    "onnxruntime",
+]
+
+[tool.fastapi]
+entrypoint = "server.main:app"
